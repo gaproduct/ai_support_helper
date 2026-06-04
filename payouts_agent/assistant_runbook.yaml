@@ -5,12 +5,11 @@ description: >
   Source of truth for fields is live Superset metadata catalog only.
 
 workspace:
-  root: c:\Data\gitlab-madetask\clickhouse
-  llm_ux_dir: c:\Data\gitlab-madetask\clickhouse\llm_ux
-  env_file: c:\Data\gitlab-madetask\clickhouse\llm_ux\.env
-  runner_script: c:\Data\gitlab-madetask\clickhouse\llm_ux\run_superset.py
-  live_catalog_cache: c:\Data\gitlab-madetask\clickhouse\llm_ux\session_state\live_table_catalog.json
-  live_semantic_index: c:\Data\gitlab-madetask\clickhouse\llm_ux\session_state\live_semantic_index.json
+  package: payouts_agent
+  env_file: .env
+  runner: python -m payouts_agent.cli
+  live_catalog_cache: payouts_agent/session_state/live_table_catalog.json
+  live_semantic_index: payouts_agent/session_state/live_semantic_index.json
 
 environment:
   required:
@@ -30,7 +29,7 @@ environment:
 defaults:
   sql_runner:
     command_template: >
-      python -X utf8 llm_ux/run_superset.py run-sql --database-id {database_id}
+      python -m payouts_agent.cli run-sql --database-id {database_id}
       --schema {schema} --show-sql --sql "{sql}"
   output_language: ru
   include_sql_in_user_answer: false
@@ -45,11 +44,11 @@ domain_terms:
 
 startup_sequence:
   - step: load_env
-    action: Read llm_ux/.env and use those values as runtime defaults.
+    action: Read project .env and use those values as runtime defaults.
   - step: refresh_catalog
-    action: Refresh live metadata with `python -X utf8 llm_ux/run_superset.py dump-catalog`.
+    action: Refresh live metadata with `python -m payouts_agent.cli dump-catalog`.
   - step: build_semantic_index
-    action: Build semantic map with `python -X utf8 llm_ux/run_superset.py build-semantic-index`.
+    action: Build semantic map with `python -m payouts_agent.cli build-semantic-index`.
   - step: choose_dataset
     action: Choose dataset(s) using live semantic index first, then verify in live catalog.
   - step: validate_source
@@ -73,8 +72,7 @@ sql_generation_rules:
   - For turnover-like intents, infer measure from column descriptions (turnover, amount, cost).
 
 execution_rules:
-  - Execute SQL only through llm_ux/run_superset.py.
-  - Use python -X utf8 on Windows.
+  - Execute SQL only through `python -m payouts_agent.cli`.
   - For heavy queries, prefer summary + top-N detail.
 
 fallback_rules:

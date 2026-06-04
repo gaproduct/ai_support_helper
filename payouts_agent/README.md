@@ -39,7 +39,7 @@ SUPERSET_SCHEMA=mv
 from payouts_agent import get_payout, run_sql
 
 # Точечный запрос по id выплаты
-payout = get_payout(615175)
+payout = get_payout(100001)
 
 # Произвольный SQL
 rows = run_sql(
@@ -61,7 +61,7 @@ python -X utf8 -m support_tickets.payouts_agent.cli build-semantic-index
 
 # Запустить SQL
 python -X utf8 -m support_tickets.payouts_agent.cli run-sql --show-sql \
-    --sql "SELECT id, status, contractor_email FROM t_payout_extended WHERE id = 615175"
+    --sql "SELECT id, status, contractor_email FROM t_payout_extended WHERE id = 100001"
 ```
 
 ## Как пользоваться (рекомендованный flow)

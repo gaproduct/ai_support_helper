@@ -8,7 +8,7 @@ Usage examples:
     python -X utf8 -m support_tickets.payouts_agent.cli dump-catalog
     python -X utf8 -m support_tickets.payouts_agent.cli build-semantic-index
     python -X utf8 -m support_tickets.payouts_agent.cli run-sql --show-sql \
-        --sql "SELECT id, status FROM mv.t_payout_extended WHERE id = 615175"
+        --sql "SELECT id, status FROM mv.t_payout_extended WHERE id = 100001"
 """
 
 from __future__ import annotations

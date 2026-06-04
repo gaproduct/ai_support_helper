@@ -84,10 +84,10 @@ _TRIGGER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# 5–9 знаков — захватывает реальные ID (615175, 617429), не путает с
+# 5–9 знаков — захватывает payout-ID, не путает с
 # годами (2025, 2026) и телефонами (10+).
-# Negative lookahead `(?!@)` отсекает локальные части email-адресов,
-# например "4014363@epn.bz" — это email, а не payout_id.
+# Negative lookahead `(?!@)` отсекает локальные части email-адресов
+# (например "1234567@domain.tld" — это email, а не payout_id).
 _PAYOUT_ID_PATTERN = re.compile(r"\b(\d{5,9})\b(?!@)")
 _EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 

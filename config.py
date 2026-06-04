@@ -22,12 +22,12 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-nano"
 
     # ── Supabase ──────────────────────────────────────────────────────────────
-    supabase_url: str = ""   # e.g. https://ircgrovmmxlqjjyzvvzb.supabase.co
+    supabase_url: str = ""   # e.g. https://your-project.supabase.co
     supabase_key: str = ""   # service_role or anon key
 
     # ── Slack ─────────────────────────────────────────────────────────────────
     slack_bot_token: str = ""
-    slack_channel_id: str = "C0AUCC0PLG3"  # support-ai-drafts
+    slack_channel_id: str = ""  # default support drafts channel ID
     # Канал, в который дублируются посты сценариев (compliance/finance/accounting)
     # для дальнейшей работы операторов через ChatOps (@mention → AI draft → button).
     slack_drafts_channel_id: str = ""

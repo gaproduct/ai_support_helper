@@ -8,13 +8,13 @@ Typical use:
 
     from payouts_agent import get_payout, run_sql
 
-    info = get_payout(615175)              # one row by id
+    info = get_payout(100001)              # one row by id
     rows = run_sql("SELECT count(*) FROM mv.t_payout_extended WHERE status='error'")
 
 For ad-hoc CLI access:
 
     python -X utf8 -m support_tickets.payouts_agent.cli run-sql --show-sql \
-        --sql "SELECT id, status FROM mv.t_payout_extended WHERE id = 615175"
+        --sql "SELECT id, status FROM mv.t_payout_extended WHERE id = 100001"
 """
 
 from __future__ import annotations

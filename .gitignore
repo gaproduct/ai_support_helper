@@ -29,6 +29,10 @@ backups/
 exports/
 reports/
 
+# Runtime state of payouts_agent (last query/result/metadata)
+payouts_agent/session_state/*
+!payouts_agent/session_state/.gitkeep
+
 # Stray artifacts in root (backups, ad-hoc xlsx/xls)
 /*.sql
 /*.xlsx
