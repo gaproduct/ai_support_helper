@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slack Эмулятор — AI Support</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Lato", -apple-system, BlinkMacSystemFont, sans-serif;
+         background: #1a1d21; color: #d1d2d3; height: 100vh;
+         display: flex; overflow: hidden; font-size: 14px; }
+
+  /* Sidebar */
+  .sidebar { width: 220px; background: #19171d; display: flex; flex-direction: column;
+             border-right: 1px solid #2c2d30; flex-shrink: 0; }
+  .ws-name { padding: 16px; font-weight: 700; font-size: 15px; color: #fff;
+             border-bottom: 1px solid #2c2d30; }
+  .ws-name span { font-size: 11px; color: #ababad; font-weight: 400;
+                  display: block; margin-top: 2px; }
+  .sidebar-section { padding: 16px 8px 8px; font-size: 12px; font-weight: 700;
+                     color: #ababad; text-transform: uppercase; letter-spacing: .5px; }
+  .channel-item { padding: 6px 16px; cursor: pointer; border-radius: 6px; margin: 1px 4px;
+                  color: #ababad; font-size: 14px;
+                  display: flex; justify-content: space-between; align-items: center; }
+  .channel-item.active { background: #1264a3; color: #fff; }
+  .channel-item:hover:not(.active) { background: #27242c; }
+  .channel-item .ch-name::before { content: "# "; opacity: .6; }
+  .channel-item .ch-badge { background: #e01e5a; color: #fff; font-size: 10px;
+                            font-weight: 700; padding: 1px 6px; border-radius: 8px; min-width: 18px; text-align: center; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .channel-header { padding: 12px 20px; border-bottom: 1px solid #2c2d30;
+                    display: flex; align-items: center; gap: 10px; background: #1a1d21; }
+  .channel-header .name { font-weight: 700; font-size: 15px; color: #fff; }
+  .channel-header .desc { font-size: 13px; color: #ababad; }
+  .messages-area { flex: 1; overflow-y: auto; padding: 16px 20px;
+                   display: flex; flex-direction: column; gap: 2px; }
+  .day-divider { text-align: center; font-size: 12px; color: #ababad;
+                 margin: 12px 0; position: relative; }
+  .day-divider::before { content:''; position:absolute; top:50%; left:0; right:0;
+                          height:1px; background:#2c2d30; z-index:0; }
+  .day-divider span { background:#1a1d21; padding:0 10px; position:relative; z-index:1; }
+
+  .slack-msg { display: flex; gap: 10px; padding: 4px 8px; border-radius: 6px;
+               cursor: pointer; }
+  .slack-msg.no-thread { cursor: default; }
+  .slack-msg:hover:not(.no-thread) { background: #222529; }
+  .slack-msg.has-thread { border-left: 3px solid #1264a3; padding-left: 5px; }
+  .avatar { width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; font-weight: 700; }
+  .av-client { background: #e01e5a; color: #fff; }
+  .av-bot    { background: #2eb886; color: #fff; }
+  .av-system { background: #6b7280; color: #fff; }
+  .msg-body { flex: 1; min-width: 0; }
+  .msg-meta { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  .msg-author { font-weight: 700; font-size: 14px; color: #fff; }
+  .msg-time { font-size: 11px; color: #ababad; }
+  .msg-text { line-height: 1.5; color: #d1d2d3; white-space: pre-wrap; word-break: break-word; }
+  .thread-info { font-size: 12px; color: #1264a3; margin-top: 4px; cursor: pointer; }
+  .thread-info:hover { text-decoration: underline; }
+  .source-ref { font-size: 11px; color: #ababad; margin-top: 4px; font-style: italic; }
+
+  .input-bar { padding: 12px 20px; border-top: 1px solid #2c2d30; }
+  .input-inner { border: 1px solid #565856; border-radius: 8px; padding: 10px 14px;
+                 background: #222529; display: flex; align-items: flex-end; gap: 10px; }
+  .input-inner textarea { flex: 1; background: transparent; border: none; outline: none;
+                           color: #d1d2d3; font-size: 14px; resize: none; max-height: 120px;
+                           line-height: 1.5; font-family: inherit; }
+  .input-inner textarea::placeholder { color: #565856; }
+  .btn-send { background: #007a5a; color: #fff; border: none; border-radius: 6px;
+              padding: 7px 14px; font-size: 13px; cursor: pointer; font-weight: 600; }
+  .btn-send:disabled { background: #2c2d30; color: #565856; cursor: not-allowed; }
+  .btn-send:hover:not(:disabled) { background: #148567; }
+  .input-bar.readonly { display: none; }
+  .channel-info { padding: 12px 20px; font-size: 12px; color: #ababad;
+                  border-top: 1px solid #2c2d30; font-style: italic; display: none; }
+  .channel-info.visible { display: block; }
+
+  /* Thread panel */
+  .thread-panel { width: 380px; background: #1a1d21; border-left: 1px solid #2c2d30;
+                  display: none; flex-direction: column; flex-shrink: 0; }
+  .thread-panel.open { display: flex; }
+  .thread-header { padding: 14px 16px; border-bottom: 1px solid #2c2d30;
+                   display: flex; justify-content: space-between; align-items: center; }
+  .thread-header .title { font-weight: 700; font-size: 15px; color: #fff; }
+  .thread-close { background: none; border: none; color: #ababad; font-size: 20px;
+                  cursor: pointer; padding: 0 4px; }
+  .thread-close:hover { color: #fff; }
+  .thread-msgs { flex: 1; overflow-y: auto; padding: 14px 16px;
+                 display: flex; flex-direction: column; gap: 8px; }
+  .thread-divider { font-size: 11px; color: #ababad; text-align: center;
+                    border-top: 1px solid #2c2d30; padding-top: 8px; margin-top: 4px; }
+  .thread-msg { display: flex; gap: 8px; }
+  .thread-msg .avatar { width: 28px; height: 28px; font-size: 12px; border-radius: 4px; }
+  .thread-msg .msg-author { font-size: 13px; }
+  .thread-msg .msg-text { font-size: 13px; }
+  .thread-input { padding: 12px 16px; border-top: 1px solid #2c2d30; }
+  .thread-input .input-inner { background: #222529; }
+  .status-chip { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px;
+                 margin-top: 4px; }
+  .chip-waiting { background: #3d3117; color: #f0b429; }
+  .chip-nomatch { background: #3d1717; color: #f87171; }
+  .chip-found   { background: #17332a; color: #34d399; }
+  .scenario-routed { margin: 8px 0; padding: 10px 14px; border-radius: 6px;
+                     font-size: 13px; line-height: 1.4; border-left: 3px solid; }
+  .scenario-routed.compliance { background: #3d1f0a; border-color: #f97316; color: #fed7aa; }
+  .scenario-routed.finance    { background: #0a3d1f; border-color: #22c55e; color: #86efac; }
+  .scenario-routed.accounting { background: #1f1a3d; border-color: #818cf8; color: #c7d2fe; }
+  .scenario-routed .ch-link { font-weight: 700; }
+  .article-ref  { font-size: 11px; color: #ababad; margin-top: 3px; font-style: italic; }
+
+  .new-btn { margin-left: auto; background: #2c2d30; border: none; color: #d1d2d3;
+             border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .new-btn:hover { background: #3a3b3e; }
+  .sim-badge { background: #7c3aed; color: #fff; font-size: 10px; font-weight: 700;
+               padding: 2px 7px; border-radius: 10px; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="ws-name">MadeTask Support<span>workspace</span></div>
+  <div class="sidebar-section">Каналы</div>
+  <div id="sidebarChannels"></div>
+</div>
+
+<!-- Main channel -->
+<div class="main">
+  <div class="channel-header">
+    <div>
+      <div class="name" id="channelTitle"></div>
+      <div class="desc" id="channelDesc"></div>
+    </div>
+    <button class="new-btn" id="newDialogBtn" onclick="newDialog()">+ Новый диалог</button>
+  </div>
+
+  <div class="messages-area" id="channelMsgs"></div>
+
+  <div class="input-bar" id="inputBar">
+    <div class="input-inner">
+      <textarea id="channelInput" rows="1" placeholder="Сообщение от клиента в #support-ai-drafts"
+                oninput="autoResize(this)" onkeydown="onKey(event, 'channel')"></textarea>
+      <button class="btn-send" id="channelSend" onclick="sendChannel()">Отправить</button>
+    </div>
+  </div>
+  <div class="channel-info" id="channelInfo">
+    Канал только для приёма уведомлений от AI-ассистента
+  </div>
+</div>
+
+<!-- Thread panel -->
+<div class="thread-panel" id="threadPanel">
+  <div class="thread-header">
+    <div class="title">Тред</div>
+    <button class="thread-close" onclick="closeThread()">✕</button>
+  </div>
+  <div class="thread-msgs" id="threadMsgs"></div>
+  <div class="thread-input">
+    <div class="input-inner">
+      <textarea id="threadInput" rows="1" placeholder="Ответить в треде..."
+                oninput="autoResize(this)" onkeydown="onKey(event, 'thread')"></textarea>
+      <button class="btn-send" id="threadSend" onclick="sendThread()">↵</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PRIMARY_CHANNEL = 'support-ai-drafts';
+
+const CHANNEL_DEFS = [
+  { name: 'support-ai-drafts', desc: 'AI-предложения для ответов на вопросы клиентов', primary: true },
+  { name: 'compliance',        desc: 'Запросы на верификацию исполнителей', primary: false },
+  { name: 'finance',           desc: 'Запросы на пополнение баланса', primary: false },
+  { name: 'бухгалтерия',       desc: 'Запросы по закрывающим документам', primary: false },
+];
+
+const SCENARIO_TO_CHANNEL = {
+  compliance: 'compliance',
+  finance:    'finance',
+  accounting: 'бухгалтерия',
+};
+
+const SCENARIO_LABELS = {
+  compliance: 'верификацию',
+  finance:    'финансы',
+  accounting: 'бухгалтерию',
+};
+
+const channels = {};
+CHANNEL_DEFS.forEach(c => channels[c.name] = { messages: [], unread: 0 });
+
+let sessionId = 'slack-' + Math.random().toString(36).slice(2);
+let activeChannel = PRIMARY_CHANNEL;
+let activeThread = null;
+let threads = [];
+
+function ts() {
+  return new Date().toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'});
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function onKey(e, src) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    src === 'channel' ? sendChannel() : sendThread();
+  }
+}
+
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function makeAvatar(role) {
+  if (role === 'client') return '<div class="avatar av-client">К</div>';
+  if (role === 'bot')    return '<div class="avatar av-bot">AI</div>';
+  return '<div class="avatar av-system">!</div>';
+}
+
+// ── Sidebar / channels ───────────────────────────────────────────────────────
+function renderSidebar() {
+  const box = document.getElementById('sidebarChannels');
+  box.innerHTML = CHANNEL_DEFS.map(c => {
+    const cls = 'channel-item' + (c.name === activeChannel ? ' active' : '');
+    const unread = channels[c.name].unread;
+    const badge = unread > 0 ? `<span class="ch-badge">${unread}</span>` : '';
+    return `<div class="${cls}" onclick="switchChannel('${c.name}')">
+      <span class="ch-name">${c.name}</span>${badge}
+    </div>`;
+  }).join('');
+}
+
+function switchChannel(name) {
+  if (!channels[name]) return;
+  activeChannel = name;
+  channels[name].unread = 0;
+  closeThread();
+  renderSidebar();
+  renderActiveChannel();
+}
+
+function renderActiveChannel() {
+  const def = CHANNEL_DEFS.find(c => c.name === activeChannel);
+  document.getElementById('channelTitle').innerHTML =
+    `# ${def.name} <span class="sim-badge">ЭМУЛЯТОР</span>`;
+  document.getElementById('channelDesc').textContent = def.desc;
+
+  const isPrimary = def.primary;
+  document.getElementById('newDialogBtn').style.display = isPrimary ? 'inline-block' : 'none';
+  document.getElementById('inputBar').style.display = isPrimary ? 'block' : 'none';
+  document.getElementById('channelInfo').classList.toggle('visible', !isPrimary);
+
+  const area = document.getElementById('channelMsgs');
+  area.innerHTML = '<div class="day-divider"><span>Сегодня</span></div>';
+  channels[def.name].messages.forEach(m => area.appendChild(renderChannelMsg(m)));
+  area.scrollTop = area.scrollHeight;
+}
+
+function renderChannelMsg(msg) {
+  const div = document.createElement('div');
+  div.className = 'slack-msg';
+  if (msg.threadId) {
+    div.dataset.threadId = msg.threadId;
+    div.onclick = () => openThread(msg.threadId);
+    if (msg.hasThread) div.classList.add('has-thread');
+  } else {
+    div.classList.add('no-thread');
+  }
+  const author = msg.role === 'client' ? 'Клиент' :
+                 msg.role === 'bot'    ? '🤖 AI Bot'   : 'AI-маршрутизация';
+  div.innerHTML = `
+    ${makeAvatar(msg.role)}
+    <div class="msg-body">
+      <div class="msg-meta">
+        <span class="msg-author">${author}</span>
+        <span class="msg-time">${msg.time}</span>
+      </div>
+      <div class="msg-text">${esc(msg.text)}</div>
+      ${msg.sourceRef ? `<div class="source-ref">${esc(msg.sourceRef)}</div>` : ''}
+      ${msg.threadId ? `<div class="thread-info" id="ti-${msg.threadId}">${threadInfoText(msg.threadId)}</div>` : ''}
+    </div>`;
+  return div;
+}
+
+function threadInfoText(threadId) {
+  const thread = threads.find(t => t.id === threadId);
+  if (!thread || thread.msgs.length === 0) return '';
+  const n = thread.msgs.length;
+  return n + ' ' + (n === 1 ? 'ответ' : 'ответа') + ' в треде →';
+}
+
+function pushChannelMsg(channelName, msg) {
+  channels[channelName].messages.push(msg);
+  if (channelName !== activeChannel) {
+    channels[channelName].unread += 1;
+    renderSidebar();
+  } else {
+    const area = document.getElementById('channelMsgs');
+    area.appendChild(renderChannelMsg(msg));
+    area.scrollTop = area.scrollHeight;
+  }
+}
+
+// ── Threads (only for primary channel) ───────────────────────────────────────
+function renderThreadMsg(msg) {
+  const div = document.createElement('div');
+  div.className = 'thread-msg';
+  div.innerHTML = `
+    ${makeAvatar(msg.role)}
+    <div class="msg-body">
+      <div class="msg-meta">
+        <span class="msg-author">${msg.role === 'client' ? 'Клиент' : '🤖 AI Bot'}</span>
+        <span class="msg-time">${msg.time}</span>
+      </div>
+      <div class="msg-text">${esc(msg.text)}</div>
+      ${msg.chip ? `<span class="status-chip ${msg.chip.cls}">${msg.chip.label}</span>` : ''}
+      ${msg.ref  ? `<div class="article-ref">📎 ${esc(msg.ref)}</div>` : ''}
+    </div>`;
+  return div;
+}
+
+function openThread(threadId) {
+  const thread = threads.find(t => t.id === threadId);
+  if (!thread) return;
+  activeThread = thread;
+  const panel = document.getElementById('threadPanel');
+  panel.classList.add('open');
+  const msgs = document.getElementById('threadMsgs');
+  msgs.innerHTML = '';
+
+  const divider = document.createElement('div');
+  divider.className = 'thread-divider';
+  divider.textContent = 'Сообщение из канала';
+  msgs.appendChild(divider);
+  msgs.appendChild(renderThreadMsg({role:'client', text:thread.rootText, time:thread.rootTs}));
+
+  const divider2 = document.createElement('div');
+  divider2.className = 'thread-divider';
+  divider2.textContent = thread.msgs.length + ' ответов';
+  msgs.appendChild(divider2);
+
+  thread.msgs.forEach(m => {
+    if (m.routedScenario) {
+      msgs.appendChild(renderRoutedScenarioBlock(m.routedScenario, m.text));
+    } else {
+      msgs.appendChild(renderThreadMsg(m));
+    }
+  });
+  msgs.scrollTop = msgs.scrollHeight;
+  document.getElementById('threadInput').focus();
+}
+
+function renderRoutedScenarioBlock(scenarioName, text) {
+  const div = document.createElement('div');
+  div.className = 'scenario-routed ' + scenarioName;
+  const channel = SCENARIO_TO_CHANNEL[scenarioName] || '?';
+  const label = SCENARIO_LABELS[scenarioName] || scenarioName;
+  div.innerHTML = `🔄 <strong>Сценарий:</strong> запрос на ${label} переадресован в
+    <span class="ch-link" onclick="switchChannel('${channel}')" style="cursor:pointer;text-decoration:underline">#${channel}</span><br>
+    <em>${esc(text)}</em>`;
+  return div;
+}
+
+function closeThread() {
+  document.getElementById('threadPanel').classList.remove('open');
+  activeThread = null;
+}
+
+function appendToThread(msg) {
+  if (!activeThread) return;
+  activeThread.msgs.push(msg);
+  const msgs = document.getElementById('threadMsgs');
+  if (msg.routedScenario) {
+    msgs.appendChild(renderRoutedScenarioBlock(msg.routedScenario, msg.text));
+  } else {
+    msgs.appendChild(renderThreadMsg(msg));
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+  // refresh thread counter on the channel message
+  const counter = document.getElementById('ti-' + activeThread.id);
+  if (counter) counter.textContent = threadInfoText(activeThread.id);
+  const chMsg = document.querySelector(`[data-thread-id="${activeThread.id}"]`);
+  if (chMsg) chMsg.classList.add('has-thread');
+}
+
+// ── Sending ──────────────────────────────────────────────────────────────────
+async function sendChannel() {
+  if (activeChannel !== PRIMARY_CHANNEL) return;
+  const inp = document.getElementById('channelInput');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = ''; inp.style.height = 'auto';
+
+  const threadId = 'th-' + Math.random().toString(36).slice(2);
+  const thread = {id: threadId, rootText: text, rootTs: ts(), msgs: []};
+  threads.push(thread);
+
+  pushChannelMsg(PRIMARY_CHANNEL, {
+    role: 'client', text, time: ts(), threadId, hasThread: false,
+  });
+  openThread(threadId);
+  await processMessage(text, threadId);
+}
+
+async function sendThread() {
+  if (!activeThread) return;
+  const inp = document.getElementById('threadInput');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = ''; inp.style.height = 'auto';
+
+  appendToThread({role:'client', text, time:ts()});
+  await processMessage(text, activeThread.id);
+}
+
+async function processMessage(text, threadId) {
+  document.getElementById('channelSend').disabled = true;
+  document.getElementById('threadSend').disabled = true;
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: threadId, message: text})
+    });
+    const data = await res.json();
+
+    if (data.status === 'waiting') {
+      appendToThread({
+        role:'bot', text: data.hint || 'Жду уточнения вопроса...', time:ts(),
+        chip:{cls:'chip-waiting', label:'⏳ накапливаю контекст'},
+      });
+    } else if (data.status === 'no_match') {
+      appendToThread({
+        role:'bot', text:'Ответ в базе знаний не найден. Требуется ответ оператора.', time:ts(),
+        chip:{cls:'chip-nomatch', label:'❌ нет совпадений'},
+      });
+    } else if (data.status === 'answer_found') {
+      appendToThread({
+        role:'bot', text: data.answer, time:ts(),
+        chip:{cls:'chip-found', label:`✓ схожесть ${data.similarity}`},
+        ref: data.article_question,
+      });
+    } else if (data.status === 'scenario_triggered') {
+      handleScenario(
+        data.scenario_name,
+        data.scenario_notification,
+        threadId,
+        data.scenario_informational,
+      );
+    }
+  } catch(e) {
+    appendToThread({role:'bot', text:'Ошибка: ' + e.message, time:ts()});
+  } finally {
+    document.getElementById('channelSend').disabled = false;
+    document.getElementById('threadSend').disabled = false;
+  }
+}
+
+function handleScenario(name, notification, threadId, informational) {
+  // Informational сценарий — это сам ответ ассистента, никакой переадресации
+  // в другой канал делать не нужно.
+  if (informational) {
+    appendToThread({
+      role: 'bot',
+      text: notification,
+      time: ts(),
+      chip: {cls: 'chip-found', label: '🤖 контекст из БД'},
+    });
+    return;
+  }
+
+  const channel = SCENARIO_TO_CHANNEL[name];
+  if (!channel) return;
+
+  // 1. mark in the thread
+  appendToThread({
+    routedScenario: name,
+    text: notification,
+    time: ts(),
+  });
+
+  // 2. push to the destination channel as a routed message
+  pushChannelMsg(channel, {
+    role: 'system',
+    text: notification,
+    time: ts(),
+    sourceRef: `Источник: тред в #${PRIMARY_CHANNEL}`,
+  });
+}
+
+async function newDialog() {
+  await fetch('/api/chat/reset', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: sessionId})
+  });
+  sessionId = 'slack-' + Math.random().toString(36).slice(2);
+  threads = [];
+  activeThread = null;
+  CHANNEL_DEFS.forEach(c => { channels[c.name] = { messages: [], unread: 0 }; });
+  closeThread();
+  renderSidebar();
+  renderActiveChannel();
+}
+
+// init
+renderSidebar();
+renderActiveChannel();
+</script>
+</body>
+</html>

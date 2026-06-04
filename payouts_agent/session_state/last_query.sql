@@ -1,0 +1,1 @@
+SELECT id, status, contractor_email, company_name, platform, payout_type, amount, currency, final_currency, amount_result_in_final_currency, provider, gateway, error_code, cancel_reason, description, created_at, completed_at FROM t_payout_extended WHERE id = 617429

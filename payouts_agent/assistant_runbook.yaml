@@ -1,0 +1,93 @@
+version: 2
+name: llm_ux_superset_query_assistant
+description: >
+  Runbook for an AI assistant that answers analytics questions via Superset SQL.
+  Source of truth for fields is live Superset metadata catalog only.
+
+workspace:
+  root: c:\Data\gitlab-madetask\clickhouse
+  llm_ux_dir: c:\Data\gitlab-madetask\clickhouse\llm_ux
+  env_file: c:\Data\gitlab-madetask\clickhouse\llm_ux\.env
+  runner_script: c:\Data\gitlab-madetask\clickhouse\llm_ux\run_superset.py
+  live_catalog_cache: c:\Data\gitlab-madetask\clickhouse\llm_ux\session_state\live_table_catalog.json
+  live_semantic_index: c:\Data\gitlab-madetask\clickhouse\llm_ux\session_state\live_semantic_index.json
+
+environment:
+  required:
+    - SUPERSET_URL
+    - SUPERSET_USERNAME
+    - SUPERSET_PASSWORD
+  optional:
+    - SUPERSET_PROVIDER
+    - SUPERSET_VERIFY_SSL
+    - SUPERSET_TIMEOUT_SECONDS
+    - SUPERSET_DATABASE_ID
+    - SUPERSET_SCHEMA
+    - SUPERSET_METADATA_DATABASE_ID
+    - SUPERSET_METADATA_SCHEMA
+    - LLM_UX_PRINT_SQL
+
+defaults:
+  sql_runner:
+    command_template: >
+      python -X utf8 llm_ux/run_superset.py run-sql --database-id {database_id}
+      --schema {schema} --show-sql --sql "{sql}"
+  output_language: ru
+  include_sql_in_user_answer: false
+
+domain_terms:
+  customer:
+    meaning: "Клиент в аналитике = customer (уровень заказчика / мультикабинета)."
+  company:
+    meaning: "Company = отдельная компания внутри customer."
+  response_requirement:
+    meaning: "Если запрос затрагивает customer/company (или есть риск смешения), явно указывать уровень агрегации: customer-level или company-level."
+
+startup_sequence:
+  - step: load_env
+    action: Read llm_ux/.env and use those values as runtime defaults.
+  - step: refresh_catalog
+    action: Refresh live metadata with `python -X utf8 llm_ux/run_superset.py dump-catalog`.
+  - step: build_semantic_index
+    action: Build semantic map with `python -X utf8 llm_ux/run_superset.py build-semantic-index`.
+  - step: choose_dataset
+    action: Choose dataset(s) using live semantic index first, then verify in live catalog.
+  - step: validate_source
+    action: Determine database_id and schema from live catalog first, then .env defaults.
+  - step: inspect_if_needed
+    action: If uncertain about a field, run DESCRIBE TABLE before generating business SQL.
+
+table_selection_rules:
+  - Prefer `COMPANY MAIN` when the question can be answered from company-level aggregates without operation-level detail.
+  - Resolve user terms to candidate fields via `live_semantic_index` before SQL drafting.
+  - If user names a specific table/view, map it to dataset from live catalog.
+  - If only one dataset matches requested fields, use it.
+  - If multiple datasets match, ask one short clarifying question.
+
+sql_generation_rules:
+  - For "industry/отрасль" segmentation, default to `top_task_category_label` from `COMPANY MAIN` metadata.
+  - Use only columns present in live catalog or confirmed by DESCRIBE TABLE.
+  - Do not use local JSON specs for company metadata or profit and loss.
+  - Keep SQL explicit; do not use SELECT * in user-result queries.
+  - Use exact date boundaries.
+  - For turnover-like intents, infer measure from column descriptions (turnover, amount, cost).
+
+execution_rules:
+  - Execute SQL only through llm_ux/run_superset.py.
+  - Use python -X utf8 on Windows.
+  - For heavy queries, prefer summary + top-N detail.
+
+fallback_rules:
+  - If direct answer is not available in described dataset fields, notify user before fallback:
+    "Я не нашел прямого поля в описанных данных и сейчас пытаюсь вывести ответ косвенно. Точность может быть ниже обычной."
+  - In fallback mode, include assumptions and clearly mark lower confidence.
+
+result_rules:
+  answer_format:
+    - Answer in Russian.
+    - Give concise business conclusion first.
+    - If relevant to question scope, explicitly state aggregation level used in the answer (customer-level or company-level).
+    - Mention date range and whether month is partial when relevant.
+    - If fallback mode was used, explicitly mention lower confidence.
+  include_assumptions: true
+  mention_partial_periods: true

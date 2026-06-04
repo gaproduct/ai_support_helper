@@ -1,0 +1,333 @@
+{
+  "table_name": "t_tasks_extended",
+  "description": "Таблица закрытых задач. Один ряд на задачу",
+  "superset_source": {
+    "database_id": 11,
+    "schema": "mv"
+  },
+  "semantic_entities": {
+    "company": {
+      "business_meaning": "Компания для бизнес-вопросов",
+      "group_by_field": "company_name",
+      "id_field": "company_id",
+      "rule": "Если в вопросе упоминается компания, по умолчанию объединять по company_name, а не по company_id."
+    },
+    "client": {
+      "business_meaning": "Клиент",
+      "group_by_field": "customer_id",
+      "display_field": "customer_first_company_name",
+      "rule": "Если в вопросе упоминается клиент, использовать customer_id как основную сущность клиента."
+    }
+  },
+  "grain": "Один ряд = одна задача",
+  "primary_date_field": "closed_at",
+  "default_amount_field": "cost_in_rub",
+  "dimensions": [
+    {
+      "name": "platform",
+      "description": "Идентификатор площадки, RU или Remozo"
+    },
+    {
+      "name": "id",
+      "description": "Уникальный номер задачи"
+    },
+    {
+      "name": "name",
+      "description": "Название задачи"
+    },
+    {
+      "name": "description",
+      "description": "Описание задачи"
+    },
+    {
+      "name": "status",
+      "description": "Статус задачи"
+    },
+    {
+      "name": "source_of_creation",
+      "description": "Источник создания задачи"
+    },
+    {
+      "name": "account_currency",
+      "description": "Валюта счета клиента"
+    },
+    {
+      "name": "account_manager",
+      "description": "Аккаунт-менеджер компании, заказчика задачи"
+    },
+    {
+      "name": "category_label",
+      "description": "Категория задачи"
+    },
+    {
+      "name": "service_id",
+      "description": "ID сервиса"
+    },
+    {
+      "name": "service_label",
+      "description": "Название сервиса"
+    },
+    {
+      "name": "internal_note",
+      "description": "Внутренняя заметка по задаче"
+    },
+    {
+      "name": "customer_id",
+      "description": "Идентификатор клиента. Понятие 'клиент' в бизнес-вопросах соответствует customer_id"
+    },
+    {
+      "name": "customer_first_company_name",
+      "description": "Основное человекочитаемое имя клиента"
+    },
+    {
+      "name": "customer_email",
+      "description": "Email клиента"
+    },
+    {
+      "name": "customer_companies",
+      "description": "Количество компаний у клиента"
+    },
+    {
+      "name": "company_id",
+      "description": "ID компании"
+    },
+    {
+      "name": "company_name",
+      "description": "Имя компании"
+    },
+    {
+      "name": "company_mt_legal_entity",
+      "description": "Юрлицо Madetask, на которое перечисляет деньги клиент"
+    },
+    {
+      "name": "company_type",
+      "description": "Тип компании: web_api, customer_api или registry"
+    },
+    {
+      "name": "company_country",
+      "description": "Код страны компании"
+    },
+    {
+      "name": "company_country_name",
+      "description": "Название страны компании"
+    },
+    {
+      "name": "sales_manager",
+      "description": "Sales-менеджер компании"
+    },
+    {
+      "name": "payout_segment",
+      "description": "Сегмент выплат компании"
+    },
+    {
+      "name": "turnover_tier",
+      "description": "Тир компании по обороту"
+    },
+    {
+      "name": "not_rosburn_efficient",
+      "description": "Флаг для исключения технических аккаунтов компаний Rosburn и Efficient, используемых для отображения виртуальных сущностей задач"
+    },
+    {
+      "name": "counts_to_dept",
+      "description": "Расчетный департамент, к которому относится задача: Sales или Accounting"
+    },
+    {
+      "name": "company_current_department",
+      "description": "Текущий департамент компании"
+    },
+    {
+      "name": "counts_to_dept_rule",
+      "description": "Правило, по которому задача относится к департаменту"
+    },
+    {
+      "name": "contractor_id",
+      "description": "ID исполнителя"
+    },
+    {
+      "name": "contractor_email",
+      "description": "Email исполнителя"
+    },
+    {
+      "name": "contractor_country_of_payout",
+      "description": "Страна, в которую была последняя выплата исполнителя"
+    },
+    {
+      "name": "contractor_country",
+      "description": "Страна исполнителя"
+    },
+    {
+      "name": "contractor_type",
+      "description": "Тип исполнителя"
+    },
+    {
+      "name": "tax_status",
+      "description": "Налоговый статус исполнителя на момент завершения задачи"
+    },
+    {
+      "name": "closed_day_of_month",
+      "description": "День месяца даты закрытия задачи"
+    },
+    {
+      "name": "closed_quarter",
+      "description": "Квартал закрытия задачи в формате YYYY - QN"
+    }
+  ],
+  "measures": [
+    {
+      "name": "cost",
+      "description": "Стоимость в валюте задачи"
+    },
+    {
+      "name": "cost_full",
+      "description": "Полная стоимость задачи с комиссией сервиса в валюте задачи"
+    },
+    {
+      "name": "cost_in_rub",
+      "description": "Стоимость задачи в рублях"
+    },
+    {
+      "name": "cost_in_account_currency_with_conversion_markup",
+      "description": "Стоимость задачи в валюте счета клиента с учетом курсовой наценки"
+    },
+    {
+      "name": "base_commission",
+      "description": "Базовая комиссия в валюте задачи"
+    },
+    {
+      "name": "base_commission_rate",
+      "description": "Ставка базовой комиссии"
+    },
+    {
+      "name": "base_commission_with_conversion_markup_in_rub",
+      "description": "Базовая комиссия сервиса с учетом наценки на конвертацию, в рублях"
+    },
+    {
+      "name": "conversion_markup_in_account_currency",
+      "description": "Курсовая наценка при создании задачи в валюте счета клиента"
+    },
+    {
+      "name": "conversion_markup_in_rub_cbr",
+      "description": "Курсовая наценка при создании задачи в рублях"
+    },
+    {
+      "name": "attributes_count",
+      "description": "Число атрибутов задачи"
+    },
+    {
+      "name": "account_currency_to_rub_rate_cbr",
+      "description": "Курс валюты счета клиента к рублю по ЦБ"
+    },
+    {
+      "name": "account_currency_to_task_currency_rate_effective",
+      "description": "Реальный курс конвертации валюты счета клиента в валюту задачи"
+    },
+    {
+      "name": "account_currency_to_task_currency_rate_market",
+      "description": "Рыночный курс конвертации валюты счета клиента в валюту задачи"
+    },
+    {
+      "name": "bitrix_company_deal_size",
+      "description": "Размер Bitrix-сделки компании"
+    }
+  ],
+  "business_rules": [
+    "Оборот по задачам по умолчанию означает SUM(cost_in_rub), если не указано иное.",
+    "Для фильтрации по периоду закрытия по умолчанию использовать closed_at.",
+    "Таблица содержит закрытые задачи, поэтому для большинства вопросов отдельный фильтр по статусу не нужен.",
+    "Если в вопросе упоминается 'компания', по умолчанию агрегировать по company_name, а не по company_id.",
+    "Если в вопросе упоминается 'клиент', использовать customer_id как идентификатор клиента.",
+    "По умолчанию исключать технические аккаунты компаний Rosburn и Efficient, используемые для отображения виртуальных сущностей задач.",
+    "Если вопрос про первую закрытую задачу компании, использовать company_first_task_closed_at или company_first_task_closed_month.",
+    "Если вопрос про онбординг клиента в Accounting, использовать company_handover_date."
+  ],
+  "common_filters": [
+    {
+      "field": "not_rosburn_efficient",
+      "rule": "coalesce(not_rosburn_efficient, 'Yes') = 'Yes'",
+      "description": "Исключать технические аккаунты Rosburn и Efficient по умолчанию."
+    }
+  ],
+  "example_questions": [
+    "Какие клиенты дали суммарный оборот больше миллиона за 2025 год?",
+    "Топ-20 клиентов по обороту за февраль 2026 года",
+    "Сколько уникальных исполнителей было у каждого клиента было в феврале 2026?"
+  ],
+  "additional_fields": [
+    {
+      "name": "created_at",
+      "description": "Дата-время создания задачи"
+    },
+    {
+      "name": "closed_month_start",
+      "description": "Месяц закрытия задачи в формате дата-время, 0:00 первого числа"
+    },
+    {
+      "name": "currency",
+      "description": "Валюта задачи"
+    },
+    {
+      "name": "has_foreign_payment_method",
+      "description": "Признак наличия иностранного метода выплаты у исполнителя"
+    },
+    {
+      "name": "next_payout_id",
+      "description": "ID следующей выплаты исполнителя после закрытия задачи"
+    },
+    {
+      "name": "next_payout_provider",
+      "description": "Провайдер следующей выплаты исполнителя после закрытия задачи"
+    },
+    {
+      "name": "company_batch_import_v2_enabled_flag",
+      "description": "Флаг, что у компании включен массовый импорт 2.0"
+    },
+    {
+      "name": "company_registry_enabled_flag",
+      "description": "Флаг, что у компании включен registry"
+    },
+    {
+      "name": "company_first_task_closed_at",
+      "description": "Дата-время первой закрытой задачи компании-заказчика"
+    },
+    {
+      "name": "company_first_task_closed_month",
+      "description": "Месяц, когда компания впервые закрыла задачу"
+    },
+    {
+      "name": "company_handover_date",
+      "description": "Дата передачи компании-заказчика из Sales в Accounting"
+    },
+    {
+      "name": "company_handover_quarter",
+      "description": "Квартал передачи компании в Accounting"
+    },
+    {
+      "name": "company_churn_q_cohort",
+      "description": "Когорта компании по кварталу churn"
+    },
+    {
+      "name": "company_simplified_task_creation_flag",
+      "description": "Флаг, что компания создает задачи по упрощенному флоу"
+    },
+    {
+      "name": "company_task_internal_note_flag",
+      "description": "Флаг, что у компании есть внутренние заметки по задачам"
+    },
+    {
+      "name": "bitrix_deal_id",
+      "description": "ID сделки компании в Bitrix"
+    },
+    {
+      "name": "bitrix_company_primary_business_area",
+      "description": "Основное бизнес-направление компании из Bitrix"
+    },
+    {
+      "name": "bitrix_company_industry_sector",
+      "description": "Индустриальный сектор компании из Bitrix"
+    },
+    {
+      "name": "bitrix_company_compliance_risk_rating",
+      "description": "Compliance risk rating компании из Bitrix"
+    }
+  ]
+}

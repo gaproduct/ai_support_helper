@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Чат — эмулятор</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #f0f2f5; display: flex; flex-direction: column;
+         align-items: center; height: 100vh; padding: 20px 16px; }
+  .top { width: 100%; max-width: 700px; display: flex; justify-content: space-between;
+         align-items: center; margin-bottom: 12px; }
+  .top h1 { font-size: 17px; font-weight: 600; color: #1a1a1a; }
+  .top-links { display: flex; gap: 14px; }
+  .top-links a { font-size: 13px; color: #4f46e5; text-decoration: none; }
+  .top-links a:hover { text-decoration: underline; }
+  .chat-wrap { width: 100%; max-width: 700px; flex: 1; display: flex; flex-direction: column;
+               background: #fff; border-radius: 14px; box-shadow: 0 2px 12px rgba(0,0,0,.08);
+               overflow: hidden; }
+  .chat-header { padding: 14px 20px; border-bottom: 1px solid #f0f0f0;
+                 display: flex; justify-content: space-between; align-items: center; }
+  .chat-header .title { font-size: 15px; font-weight: 600; }
+  .chat-header .subtitle { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+  .btn-reset { border: none; background: #f3f4f6; color: #374151; border-radius: 7px;
+               padding: 7px 14px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  .btn-reset:hover { background: #e5e7eb; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex;
+              flex-direction: column; gap: 12px; }
+  .msg { display: flex; flex-direction: column; max-width: 80%; }
+  .msg.client { align-self: flex-end; align-items: flex-end; }
+  .msg.bot { align-self: flex-start; align-items: flex-start; }
+  .msg .bubble { padding: 10px 14px; border-radius: 14px; font-size: 14px;
+                 line-height: 1.5; white-space: pre-wrap; }
+  .msg.client .bubble { background: #4f46e5; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot .bubble { background: #f3f4f6; color: #1a1a1a; border-bottom-left-radius: 4px; }
+  .msg .meta { font-size: 11px; color: #9ca3af; margin-top: 4px; padding: 0 4px; }
+  .msg.bot.waiting .bubble { background: #fef9c3; color: #854d0e; }
+  .msg.bot.no-match .bubble { background: #fee2e2; color: #991b1b; }
+  .msg.bot.answer .bubble { background: #f0fdf4; color: #14532d; }
+  .article-tag { font-size: 11px; color: #6b7280; margin-top: 2px; padding: 0 4px;
+                 font-style: italic; }
+  .input-row { padding: 14px 16px; border-top: 1px solid #f0f0f0;
+               display: flex; gap: 10px; align-items: flex-end; }
+  .input-row textarea { flex: 1; border: 1px solid #ddd; border-radius: 10px;
+                        padding: 10px 14px; font-size: 14px; resize: none;
+                        outline: none; max-height: 120px; line-height: 1.5;
+                        font-family: inherit; }
+  .input-row textarea:focus { border-color: #4f46e5; }
+  .btn-send { background: #4f46e5; color: #fff; border: none; border-radius: 10px;
+              padding: 10px 18px; font-size: 14px; font-weight: 500; cursor: pointer;
+              white-space: nowrap; }
+  .btn-send:hover { background: #4338ca; }
+  .btn-send:disabled { background: #a5b4fc; cursor: not-allowed; }
+  .empty-hint { text-align: center; color: #d1d5db; font-size: 14px; margin: auto; }
+  .sim-badge { display: inline-block; background: #fef3c7; color: #92400e;
+               font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+  .msg.compliance-alert { align-self: center; align-items: center; max-width: 95%; }
+  .compliance-bubble { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+                       border-radius: 10px; font-size: 13px; text-align: center; }
+  .msg.balance-alert { align-self: center; align-items: center; max-width: 95%; }
+  .balance-bubble { background: #f0fdf4; color: #14532d; border: 1px solid #86efac;
+                    border-radius: 10px; font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>🤖 AI Чат — эмулятор <span class="sim-badge">ТЕСТ</span></h1>
+  <div class="top-links">
+    <a href="/test">Быстрый тест</a>
+    <a href="/train">Обучение</a>
+    <a href="/kb">База знаний</a>
+  </div>
+</div>
+
+<div class="chat-wrap">
+  <div class="chat-header">
+    <div>
+      <div class="title">Диалог с клиентом</div>
+      <div class="subtitle" id="sessionLabel">Новый диалог</div>
+    </div>
+    <button class="btn-reset" onclick="resetChat()">↺ Новый диалог</button>
+  </div>
+  <div class="messages" id="messages">
+    <div class="empty-hint">Напишите сообщение от имени клиента</div>
+  </div>
+  <div class="input-row">
+    <textarea id="input" rows="1" placeholder="Сообщение клиента..." onkeydown="onKey(event)"
+              oninput="autoResize(this)"></textarea>
+    <button class="btn-send" id="sendBtn" onclick="sendMessage()">Отправить</button>
+  </div>
+</div>
+
+<script>
+let sessionId = newSessionId();
+let messageCount = 0;
+
+function newSessionId() {
+  return 'sim-' + Math.random().toString(36).slice(2);
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function onKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function addMsg(role, text, type='', meta='') {
+  const box = document.getElementById('messages');
+  const empty = box.querySelector('.empty-hint');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = 'msg ' + role + (type ? ' ' + type : '');
+  div.innerHTML = `<div class="bubble">${esc(text)}</div>` +
+    (meta ? `<div class="meta">${esc(meta)}</div>` : '');
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function addBotAnswer(answer, articleQ, similarity) {
+  const box = document.getElementById('messages');
+  const empty = box.querySelector('.empty-hint');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = 'msg bot answer';
+  div.innerHTML = `<div class="bubble">${esc(answer)}</div>
+    <div class="article-tag">Статья: «${esc(articleQ)}» · схожесть ${similarity}</div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = ''; input.style.height = 'auto';
+  messageCount++;
+  addMsg('client', text);
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true; btn.textContent = '...';
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: sessionId, message: text})
+    });
+    const data = await res.json();
+
+    if (data.status === 'waiting') {
+      addMsg('bot', data.hint || 'Жду уточнения...', 'waiting', 'Накоплено: ' + (data.accumulated || ''));
+    } else if (data.status === 'no_match') {
+      addMsg('bot', 'В базе знаний ответ не найден. Вопрос передан оператору.', 'no-match');
+    } else if (data.status === 'answer_found') {
+      addBotAnswer(data.answer, data.article_question, data.similarity);
+    } else if (data.status === 'scenario_triggered') {
+      addScenarioNotification(data.scenario_name, data.scenario_notification);
+    } else if (data.status === 'empty') {
+      // ignore
+    }
+  } catch(e) {
+    addMsg('bot', 'Ошибка соединения: ' + e.message, 'no-match');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Отправить';
+    document.getElementById('input').focus();
+  }
+}
+
+async function resetChat() {
+  await fetch('/api/chat/reset', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId})
+  });
+  sessionId = newSessionId();
+  messageCount = 0;
+  document.getElementById('messages').innerHTML = '<div class="empty-hint">Напишите сообщение от имени клиента</div>';
+  document.getElementById('sessionLabel').textContent = 'Новый диалог';
+  document.getElementById('input').focus();
+}
+
+const SCENARIO_UI = {
+  compliance: {
+    cls: 'compliance-alert',
+    bubble: 'compliance-bubble',
+    icon: '🚨',
+    title: 'Комплаенс-запрос отправлен:',
+  },
+  finance: {
+    cls: 'balance-alert',
+    bubble: 'balance-bubble',
+    icon: '💰',
+    title: 'Запрос на пополнение баланса отправлен в финансы:',
+  },
+};
+
+function addScenarioNotification(name, text) {
+  const cfg = SCENARIO_UI[name] || {cls:'', bubble:'', icon:'🔄', title:'Запущен сценарий: ' + name};
+  const box = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + cfg.cls;
+  div.innerHTML = `<div class="bubble ${cfg.bubble}">${cfg.icon} <strong>${cfg.title}</strong><br>${esc(text)}</div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+</script>
+</body>
+</html>

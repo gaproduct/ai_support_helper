@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.local
+
+# Generated / large data — NOT committed
+dumps/
+backups/
+exports/
+reports/
+
+# Stray artifacts in root (backups, ad-hoc xlsx/xls)
+/*.sql
+/*.xlsx
+/*.xls

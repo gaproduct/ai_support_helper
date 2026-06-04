@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Auto-response Tester</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #f5f5f5; display: flex; justify-content: center;
+         padding: 40px 16px; min-height: 100vh; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.1);
+          padding: 32px; width: 100%; max-width: 680px; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 24px; color: #1a1a1a; }
+  label { display: block; font-size: 13px; font-weight: 500; color: #555; margin-bottom: 6px; }
+  textarea { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 12px;
+             font-size: 15px; resize: vertical; min-height: 90px; outline: none;
+             transition: border .2s; }
+  textarea:focus { border-color: #4f46e5; }
+  button { margin-top: 14px; width: 100%; background: #4f46e5; color: #fff;
+           border: none; border-radius: 8px; padding: 13px; font-size: 15px;
+           font-weight: 500; cursor: pointer; transition: background .2s; }
+  button:hover { background: #4338ca; }
+  button:disabled { background: #a5b4fc; cursor: not-allowed; }
+  .result { margin-top: 24px; display: none; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px;
+           border-radius: 20px; margin-bottom: 16px; }
+  .badge.found { background: #dcfce7; color: #16a34a; }
+  .badge.notfound { background: #fee2e2; color: #dc2626; }
+  .field { margin-bottom: 16px; }
+  .field label { margin-bottom: 4px; color: #777; }
+  .field .value { background: #f9f9f9; border: 1px solid #eee; border-radius: 8px;
+                  padding: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+  .similarity { font-size: 13px; color: #888; margin-top: 4px; }
+  .banner { display: none; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; line-height: 1.5; }
+  .banner-icon { font-size: 18px; margin-right: 8px; }
+  .banner-title { font-weight: 600; margin-bottom: 4px; }
+  .banner-text { color: #555; font-size: 13px; }
+  .banner.compliance { background: #fff7ed; border: 1px solid #fed7aa; }
+  .banner.compliance .banner-title { color: #c2410c; }
+  .banner.finance { background: #eff6ff; border: 1px solid #bfdbfe; }
+  .banner.finance .banner-title { color: #1d4ed8; }
+  .banner.waiting { background: #fef9c3; border: 1px solid #fde68a; }
+  .banner.waiting .banner-title { color: #854d0e; }
+  .banner.ai-response { background: #f5f3ff; border: 1px solid #ddd6fe; }
+  .banner.ai-response .banner-title { color: #6d28d9; }
+  .banner.ai-response .banner-text { color: #1f2937; font-size: 14px; white-space: pre-wrap; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e7eb; margin-bottom: 24px; }
+  .tab { padding: 10px 16px; cursor: pointer; font-size: 14px; font-weight: 500;
+         color: #6b7280; border-bottom: 2px solid transparent; transition: all .2s; }
+  .tab:hover { color: #1a1a1a; }
+  .tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  pre.sql { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px;
+            font-size: 12px; overflow-x: auto; white-space: pre-wrap; line-height: 1.5; }
+  table.rows { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  table.rows th, table.rows td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; }
+  table.rows th { background: #f3f4f6; font-weight: 600; }
+  table.rows td { white-space: pre-wrap; word-break: break-word; max-width: 240px; }
+  .err { color: #b91c1c; background: #fee2e2; padding: 10px 12px; border-radius: 8px;
+         font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🤖 AI Tester</h1>
+  <div class="tabs">
+    <div class="tab active" data-tab="auto" onclick="switchTab('auto')">Auto-response</div>
+    <div class="tab" data-tab="db" onclick="switchTab('db')">DB Query</div>
+  </div>
+
+  <div class="tab-panel active" id="panel-auto">
+  <div>
+    <label for="q">Вопрос клиента</label>
+    <textarea id="q" placeholder="Введите вопрос..."></textarea>
+    <button id="btn" onclick="search()">Найти ответ</button>
+  </div>
+  <div class="result" id="result">
+    <span class="badge" id="badge"></span>
+    <div class="banner compliance" id="banner-compliance">
+      <div class="banner-title"><span class="banner-icon">🔄</span>Запущен сценарий: Отправка на верификацию</div>
+      <div class="banner-text" id="banner-compliance-text"></div>
+    </div>
+    <div class="banner finance" id="banner-finance">
+      <div class="banner-title"><span class="banner-icon">🔄</span>Запущен сценарий: Отправка запроса в финансовый чат</div>
+      <div class="banner-text" id="banner-finance-text"></div>
+    </div>
+    <div class="banner waiting" id="banner-waiting">
+      <div class="banner-title" id="banner-waiting-title"><span class="banner-icon">⏳</span>AI-ассистент ожидает продолжения вопроса</div>
+      <div class="banner-text" id="banner-waiting-text">Сообщение похоже на приветствие — поиск в базе знаний не запущен. Дождитесь следующего сообщения клиента.</div>
+    </div>
+    <div class="banner ai-response" id="banner-ai-response">
+      <div class="banner-title"><span class="banner-icon">🤖</span>Ответ AI-ассистента</div>
+      <div class="banner-text" id="banner-ai-response-text"></div>
+    </div>
+    <div class="field" id="f-question" style="display:none">
+      <label>Найденная статья</label>
+      <div class="value" id="r-question"></div>
+    </div>
+    <div class="field" id="f-answer" style="display:none">
+      <label>Предлагаемый ответ</label>
+      <div class="value" id="r-answer"></div>
+      <div class="similarity" id="r-sim"></div>
+    </div>
+  </div>
+  </div><!-- /panel-auto -->
+
+  <div class="tab-panel" id="panel-db">
+    <div>
+      <label for="dbq">Вопрос по БД (Superset / ClickHouse)</label>
+      <textarea id="dbq" placeholder="Например: сколько выплат в статусе error за последние 7 дней?"></textarea>
+      <button id="dbbtn" onclick="dbAsk()">Спросить</button>
+    </div>
+    <div id="db-result" style="margin-top: 24px; display: none;">
+      <div class="field">
+        <label>Ответ</label>
+        <div class="value" id="db-answer"></div>
+      </div>
+      <div class="field">
+        <label>Сгенерированный SQL</label>
+        <pre class="sql" id="db-sql"></pre>
+      </div>
+      <div class="field">
+        <label>Результат (<span id="db-row-count">0</span> строк)</label>
+        <div id="db-rows"></div>
+      </div>
+    </div>
+    <div class="err" id="db-error" style="display: none;"></div>
+  </div><!-- /panel-db -->
+</div>
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+}
+
+async function dbAsk() {
+  const q = document.getElementById('dbq').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('dbbtn');
+  const resultBox = document.getElementById('db-result');
+  const errBox = document.getElementById('db-error');
+  btn.disabled = true; btn.textContent = 'Думаю...';
+  errBox.style.display = 'none';
+  resultBox.style.display = 'none';
+  try {
+    const res = await fetch('/api/db-query', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: q})
+    });
+    const data = await res.json();
+    if (data.error) {
+      errBox.textContent = 'Ошибка: ' + data.error;
+      errBox.style.display = 'block';
+      if (data.sql) {
+        document.getElementById('db-sql').textContent = data.sql;
+        document.getElementById('db-answer').textContent = '';
+        document.getElementById('db-rows').innerHTML = '';
+        document.getElementById('db-row-count').textContent = '0';
+        resultBox.style.display = 'block';
+      }
+      return;
+    }
+    document.getElementById('db-answer').textContent = data.answer || '';
+    document.getElementById('db-sql').textContent = data.sql || '';
+    document.getElementById('db-row-count').textContent = (data.rows || []).length;
+    document.getElementById('db-rows').innerHTML = renderRows(data.rows || []);
+    resultBox.style.display = 'block';
+  } catch (e) {
+    errBox.textContent = 'Сетевая ошибка: ' + e.message;
+    errBox.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Спросить';
+  }
+}
+
+function renderRows(rows) {
+  if (!rows.length) return '<div style="color:#888;font-size:13px;">Нет данных</div>';
+  const cols = Object.keys(rows[0]);
+  let html = '<div style="overflow-x:auto;"><table class="rows"><thead><tr>';
+  for (const c of cols) html += `<th>${escapeHtml(c)}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const r of rows) {
+    html += '<tr>';
+    for (const c of cols) {
+      const v = r[c];
+      const s = v === null || v === undefined ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+      html += `<td>${escapeHtml(s)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('dbq').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) dbAsk();
+});
+async function search() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('btn');
+  btn.disabled = true; btn.textContent = 'Ищу...';
+  try {
+    const res = await fetch('/api/search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: q})
+    });
+    const data = await res.json();
+    const result = document.getElementById('result');
+    const badge = document.getElementById('badge');
+    result.style.display = 'block';
+
+    document.getElementById('banner-compliance').style.display = 'none';
+    document.getElementById('banner-finance').style.display = 'none';
+    document.getElementById('banner-waiting').style.display = 'none';
+    document.getElementById('banner-ai-response').style.display = 'none';
+    document.getElementById('f-question').style.display = 'none';
+    document.getElementById('f-answer').style.display = 'none';
+    // reset waiting banner texts to defaults
+    document.getElementById('banner-waiting-title').innerHTML =
+      '<span class="banner-icon">⏳</span>AI-ассистент ожидает продолжения вопроса';
+    document.getElementById('banner-waiting-text').textContent =
+      'Сообщение похоже на приветствие — поиск в базе знаний не запущен. Дождитесь следующего сообщения клиента.';
+
+    if (data.is_greeting) {
+      badge.className = 'badge notfound'; badge.textContent = 'Ожидание вопроса';
+      document.getElementById('banner-waiting').style.display = 'block';
+      return;
+    }
+
+    const SCENARIO_BANNERS = {
+      compliance: 'banner-compliance',
+      finance: 'banner-finance',
+    };
+    const SCENARIO_TEXT_IDS = {
+      compliance: 'banner-compliance-text',
+      finance: 'banner-finance-text',
+    };
+
+    if (data.scenario) {
+      // informational + ждёт уточнения → показываем waiting-баннер с подсказкой
+      if (data.scenario.informational && data.scenario.needs_followup) {
+        document.getElementById('banner-waiting-title').innerHTML =
+          '<span class="banner-icon">⏳</span>AI-ассистент ожидает уточнения';
+        document.getElementById('banner-waiting-text').textContent =
+          data.scenario.followup_hint || 'Уточните детали запроса.';
+        document.getElementById('banner-waiting').style.display = 'block';
+        badge.className = 'badge notfound'; badge.textContent = 'Нужно уточнение';
+        return;
+      }
+      // informational → notification = готовый ответ ассистента
+      if (data.scenario.informational) {
+        document.getElementById('banner-ai-response').style.display = 'block';
+        document.getElementById('banner-ai-response-text').textContent =
+          data.scenario.notification || '';
+        badge.className = 'badge found'; badge.textContent = 'Ответ AI-ассистента';
+        return;
+      }
+      // обычный routing-сценарий
+      const bannerId = SCENARIO_BANNERS[data.scenario.name];
+      const textId = SCENARIO_TEXT_IDS[data.scenario.name];
+      if (bannerId) {
+        document.getElementById(bannerId).style.display = 'block';
+        document.getElementById(textId).textContent = data.scenario.notification || '';
+      }
+      badge.className = 'badge notfound'; badge.textContent = 'Сценарий запущен';
+      return;
+    }
+
+    if (data.found) {
+      badge.className = 'badge found'; badge.textContent = 'Ответ найден';
+      document.getElementById('f-question').style.display = 'block';
+      document.getElementById('f-answer').style.display = 'block';
+      document.getElementById('r-question').textContent = data.question;
+      document.getElementById('r-answer').textContent = data.answer;
+      document.getElementById('r-sim').textContent = 'Схожесть: ' + data.similarity;
+    } else {
+      badge.className = 'badge notfound'; badge.textContent = 'Ответ не найден';
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Найти ответ';
+  }
+}
+document.getElementById('q').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) search();
+});
+</script>
+</body>
+</html>

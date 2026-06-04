@@ -1,0 +1,454 @@
+{
+  "table_name": "t_payout_extended",
+  "description": "Расширенная таблица выплат. Один ряд = одна выплата, за исключением технических зеркальных записей, которые уже исключены на уровне view.",
+  "superset_source": {
+    "database_id": 11,
+    "schema": "mv"
+  },
+  "semantic_entities": {
+    "company": {
+      "business_meaning": "Основная компания исполнителя",
+      "group_by_field": "company_name",
+      "id_field": "company_id",
+      "rule": "Если в вопросе упоминается компания, по умолчанию агрегировать по company_name, а не по company_id."
+    },
+    "client": {
+      "business_meaning": "Клиент / заказчик по последней задаче или основной компании",
+      "group_by_field": "company_name",
+      "rule": "В этой таблице нет customer_id, поэтому клиентские вопросы по умолчанию интерпретировать через company_name или company_id."
+    },
+    "contractor": {
+      "business_meaning": "Исполнитель",
+      "group_by_field": "contractor_id",
+      "display_field": "contractor_email",
+      "rule": "Если в вопросе упоминается исполнитель, использовать contractor_id как основную сущность."
+    }
+  },
+  "grain": "Один ряд = одна выплата",
+  "primary_date_field": "completed_at",
+  "default_amount_field": "amount_in_rub_cbr",
+  "dimensions": [
+    {
+      "name": "platform",
+      "description": "Платформа выплаты: RU, COM или Remozo"
+    },
+    {
+      "name": "id",
+      "description": "ID выплаты по таблице payout"
+    },
+    {
+      "name": "provider",
+      "description": "Провайдер выплаты"
+    },
+    {
+      "name": "provider_id",
+      "description": "ID в системе провайдера"
+    },
+    {
+      "name": "final_provider",
+      "description": "Финальный провайдер по выплате, если есть зеркальная выплата, то провайдер по ней"
+    },
+    {
+      "name": "gateway",
+      "description": "Платежный шлюз, вычисляется по провайдеру, налоговому статусу и валюте"
+    },
+    {
+      "name": "payout_type",
+      "description": "Тип выплаты: bank_card, ie_bank_account, yoomoney и т.д."
+    },
+    {
+      "name": "payout_area",
+      "description": "Russia / World / Crypto"
+    },
+    {
+      "name": "status",
+      "description": "Статус выплаты: Completed, canceled или error"
+    },
+    {
+      "name": "error_code",
+      "description": "Код ошибки операции"
+    },
+    {
+      "name": "description",
+      "description": "Краткая информация о платеже или операции"
+    },
+    {
+      "name": "cancel_reason",
+      "description": "Причина отмены операции"
+    },
+    {
+      "name": "receipt_link",
+      "description": "Ссылка на чек для выплат самозанятым"
+    },
+    {
+      "name": "currency",
+      "description": "Валюта, в которой запрошена выплата, равна валюте закрытия задач"
+    },
+    {
+      "name": "final_currency",
+      "description": "Итоговая валюта выплаты после конвертации"
+    },
+    {
+      "name": "contractor_id",
+      "description": "ID исполнителя"
+    },
+    {
+      "name": "contractor_email",
+      "description": "Электронная почта исполнителя"
+    },
+    {
+      "name": "contractor_first_name",
+      "description": "Имя исполнителя"
+    },
+    {
+      "name": "contractor_last_name",
+      "description": "Фамилия исполнителя"
+    },
+    {
+      "name": "contractor_father_name",
+      "description": "Отчество исполнителя"
+    },
+    {
+      "name": "tax_status",
+      "description": "Налоговый статус исполнителя на момент выплаты"
+    },
+    {
+      "name": "kyc_level",
+      "description": "Уровень KYC исполнителя на момент выплаты"
+    },
+    {
+      "name": "wallet_number",
+      "description": "Номер криптокошелька исполнителя"
+    },
+    {
+      "name": "contractor_country",
+      "description": "Страна исполнителя"
+    },
+    {
+      "name": "contractor_country_name",
+      "description": "Название страны исполнителя"
+    },
+    {
+      "name": "company_id",
+      "description": "ID основной компании"
+    },
+    {
+      "name": "company_name",
+      "description": "Название основной компании, с которой работает исполнитель"
+    },
+    {
+      "name": "company_type",
+      "description": "Тип компании: api, web или registry"
+    },
+    {
+      "name": "company_country",
+      "description": "Код страны основной компании"
+    },
+    {
+      "name": "company_country_name",
+      "description": "Название страны основной компании"
+    },
+    {
+      "name": "company_account_currency",
+      "description": "Валюта, в которой открыт расчетный счет компании"
+    },
+    {
+      "name": "company_payin_currency",
+      "description": "Валюта, в которой компания пополняет счет"
+    },
+    {
+      "name": "not_rosburn_efficient",
+      "description": "Флаг Yes/No. Выплата не относится к техническим сущностям или тестовым заказчикам Rosburn, Efficient, Apzone, Test"
+    },
+    {
+      "name": "account_manager",
+      "description": "Аккаунт-менеджер"
+    },
+    {
+      "name": "sales_manager",
+      "description": "Менеджер по продажам"
+    },
+    {
+      "name": "counts_to_dept",
+      "description": "Accounting или Sales"
+    },
+    {
+      "name": "company_holds_income_tax",
+      "description": "Признак того, удерживает ли компания подоходный налог"
+    },
+    {
+      "name": "mirror_instance",
+      "description": "Тип зеркалирования выплаты: domestic, cross_border_original, cross_border_mirrored или error"
+    },
+    {
+      "name": "mirror_platform",
+      "description": "Платформа для зеркальной выплаты"
+    },
+    {
+      "name": "mirror_provider",
+      "description": "Провайдер зеркальной выплаты"
+    },
+    {
+      "name": "mirror_id",
+      "description": "ID зеркальной выплаты, заполнено только для исходной выплаты"
+    },
+    {
+      "name": "original_id",
+      "description": "ID оригинальной записи, заполнено только для зеркальной при трансграничных выплатах"
+    },
+    {
+      "name": "original_platform",
+      "description": "RU, COM или Remozo для оригинальной выплаты"
+    },
+    {
+      "name": "final_platform",
+      "description": "Платформа финальной выплаты"
+    },
+    {
+      "name": "last_task_category_id",
+      "description": "ID категории последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_category_label",
+      "description": "Категория последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_service_id",
+      "description": "ID сервиса последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_service_label",
+      "description": "Сервис последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_name",
+      "description": "Название последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_description",
+      "description": "Описание последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_id",
+      "description": "ID последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_company_id",
+      "description": "ID компании последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_company_name",
+      "description": "Название компании последней закрытой задачи перед выплатой"
+    },
+    {
+      "name": "last_task_company_mt_legal_entity",
+      "description": "Юрлицо Madetask для компании последней закрытой задачи"
+    },
+    {
+      "name": "card_country",
+      "description": "Страна выпуска карты"
+    },
+    {
+      "name": "card_number",
+      "description": "Номер банковской карты с маской"
+    },
+    {
+      "name": "card_token",
+      "description": "Токен карты, зашифрованный идентификатор карты"
+    },
+    {
+      "name": "card_bin",
+      "description": "BIN карты"
+    },
+    {
+      "name": "card_bank",
+      "description": "Банк-эмитент карты"
+    },
+    {
+      "name": "card_system",
+      "description": "Платежная система карты"
+    },
+    {
+      "name": "card_visa_region",
+      "description": "Регион Visa, к которому относится страна выпуска карты"
+    },
+    {
+      "name": "card_mc_region",
+      "description": "Регион Mastercard, к которому относится страна выпуска карты"
+    },
+    {
+      "name": "gateway_pricing_id",
+      "description": "Идентификатор тарифного правила платежного шлюза"
+    },
+    {
+      "name": "need_moderation",
+      "description": "Требуется ли модерация"
+    },
+    {
+      "name": "passed_moderation",
+      "description": "Признак, что выплата прошла модерацию"
+    },
+    {
+      "name": "first_moderation_reason",
+      "description": "Первая причина отправления на модерацию"
+    },
+    {
+      "name": "last_webhook_error",
+      "description": "Последняя ошибка webhook по выплате"
+    }
+  ],
+  "measures": [
+    {
+      "name": "amount",
+      "description": "Сумма выплаты в исходной валюте до всех комиссий"
+    },
+    {
+      "name": "amount_in_rub_cbr",
+      "description": "Сумма выплаты в рублях по курсу ЦБ"
+    },
+    {
+      "name": "amount_result",
+      "description": "Сумма выплаты после удержания базовой комиссии, но до конвертации, в валюте выплаты"
+    },
+    {
+      "name": "amount_result_in_final_currency",
+      "description": "Итоговая сумма операции в конечной валюте после всех конвертаций и комиссий"
+    },
+    {
+      "name": "amount_result_in_final_currency_after_tax",
+      "description": "Сумма в итоговой валюте после вычета налогов"
+    },
+    {
+      "name": "amount_result_in_rub_after_tax",
+      "description": "Итоговая сумма выплаты после налогов в рублях"
+    },
+    {
+      "name": "amount_result_in_usd_after_tax",
+      "description": "Итоговая сумма выплаты после налогов в долларах"
+    },
+    {
+      "name": "tax_rate",
+      "description": "Ставка НДФЛ"
+    },
+    {
+      "name": "tax_amount",
+      "description": "Сумма налога"
+    },
+    {
+      "name": "payout_commission",
+      "description": "Базовая комиссия за выплату как разница между запрошенной суммой и суммой выплаты"
+    },
+    {
+      "name": "payout_commission_in_rub_cbr",
+      "description": "Комиссия за выплату в рублях по курсу ЦБ"
+    },
+    {
+      "name": "conversion_commission_in_final_currency",
+      "description": "Комиссия за конвертацию в итоговой валюте"
+    },
+    {
+      "name": "conversion_commission_in_rub",
+      "description": "Комиссия за конвертацию в рублях"
+    },
+    {
+      "name": "payout_currency_to_rub_rate_cbr",
+      "description": "Курс конвертации валюты выплаты в рубли по курсу ЦБ"
+    },
+    {
+      "name": "final_currency_to_rub_rate_cbr",
+      "description": "Курс конвертации итоговой валюты в рубли по курсу ЦБ"
+    },
+    {
+      "name": "market_conversion_rate",
+      "description": "Рыночный курс конвертации валюты"
+    },
+    {
+      "name": "effective_conversion_rate",
+      "description": "Фактический курс конверсии валюты"
+    },
+    {
+      "name": "provider_fixed_commission_to_rub_rate",
+      "description": "Курс конвертации фиксированной комиссии провайдера в рубли"
+    },
+    {
+      "name": "payout_cost_in_rub_cbr",
+      "description": "Себестоимость выплаты, то есть стоимость услуг шлюза-посредника, в рублях по курсу ЦБ"
+    },
+    {
+      "name": "gateway_conversion_cost_in_rub",
+      "description": "Стоимость конвертации валюты шлюзом, выраженная в рублях"
+    },
+    {
+      "name": "processing_time_in_days",
+      "description": "Время обработки операции в днях"
+    },
+    {
+      "name": "processing_time_in_working_days",
+      "description": "Время обработки операции в днях без учета субботы и воскресенья"
+    },
+    {
+      "name": "bank_response_time_hours",
+      "description": "Среднее время ответа банка в часах"
+    }
+  ],
+  "business_rules": [
+    "По умолчанию объем выплат считать по amount_in_rub_cbr, то есть по сумме выплаты до налогов в рублях по курсу ЦБ.",
+    "Для фильтрации по периоду по умолчанию использовать completed_at.",
+    "По умолчанию исключать технические сущности Rosburn, Efficient, Apzone и Test по полю not_rosburn_efficient.",
+    "Технические зеркальные выплаты cross_border_mirrored уже исключены на уровне view.",
+    "Если вопрос про исполнителя, использовать contractor_id как основную сущность.",
+    "Если вопрос про компанию, по умолчанию использовать основную компанию исполнителя: company_name / company_id.",
+    "Если вопрос про последнюю задачу перед выплатой, использовать поля last_task_*.",
+    "Если вопрос про себестоимость выплат, использовать payout_cost_in_rub_cbr."
+  ],
+  "common_filters": [
+    {
+      "field": "not_rosburn_efficient",
+      "rule": "coalesce(not_rosburn_efficient, 'Yes') = 'Yes'",
+      "description": "Исключать технические аккаунты Rosburn, Efficient, Apzone и тестовые сущности по умолчанию."
+    }
+  ],
+  "example_questions": [
+    "Какой был суммарный объем выплат по странам исполнителей за 2025 год?",
+    "Топ провайдеров выплат по объему после налогов за последний месяц",
+    "Среднее время обработки выплат по gateway за февраль 2026"
+  ],
+  "additional_fields": [
+    {
+      "name": "staff_id",
+      "description": "ID сотрудника, который протолкнул выплату"
+    },
+    {
+      "name": "created_at",
+      "description": "Дата и время инициации выплаты"
+    },
+    {
+      "name": "completed_at",
+      "description": "Дата и время завершения операции"
+    },
+    {
+      "name": "completed_day_of_month",
+      "description": "День месяца, когда операция была завершена"
+    },
+    {
+      "name": "completed_month_start",
+      "description": "Дата начала месяца, к которому относится завершенная операция"
+    },
+    {
+      "name": "completed_year_quarter",
+      "description": "Год и квартал операции по дате завершения"
+    },
+    {
+      "name": "tax_currency",
+      "description": "Валюта, в которой начислен налог"
+    },
+    {
+      "name": "request_ids",
+      "description": "Массив request_id по выплате"
+    },
+    {
+      "name": "mirror_task_id",
+      "description": "ID виртуальной задачи на зеркальной платформе"
+    }
+  ]
+}

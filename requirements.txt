@@ -1,0 +1,22 @@
+# Web / API
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+requests==2.32.3  # used by payouts_agent (Superset client)
+
+# Database
+sqlalchemy==2.0.40
+psycopg2-binary==2.9.10
+
+# Config
+pydantic-settings==2.9.0
+
+# OpenAI
+openai==1.75.0
+
+# Slack
+slack-sdk==3.34.0
+
+# Scheduler
+APScheduler==3.11.0
+openpyxl>=3.1
