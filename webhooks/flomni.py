@@ -27,11 +27,11 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
-import auto_response
-from ai_response import post_ai_response
-from config import settings
-from database import IncomingMessage, get_session
-from slack_client import post_slack
+from ai import auto_response
+from ai.response import post_ai_response
+from core.config import settings
+from core.database import IncomingMessage, get_session
+from slack_integration.client import post_slack
 
 log = logging.getLogger(__name__)
 

@@ -13,11 +13,11 @@ Priority:
 import json
 import logging
 
-import auto_response
+from ai import auto_response
 import scenarios
-from database import IncomingMessage, get_session
-from slack_client import post_slack
-from slack_drafts import duplicate_to_drafts
+from core.database import IncomingMessage, get_session
+from slack_integration.client import post_slack
+from slack_integration.drafts import duplicate_to_drafts
 
 log = logging.getLogger(__name__)
 

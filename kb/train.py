@@ -15,7 +15,7 @@ import logging
 import httpx
 from openai import OpenAI
 
-from config import settings
+from core.config import settings
 
 log = logging.getLogger(__name__)
 

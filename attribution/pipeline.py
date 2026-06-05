@@ -27,10 +27,10 @@ from __future__ import annotations
 import logging
 import sys
 
-import extract_company_from_group_name
-import extract_dialog_emails
-import resolve_dialog_companies
-from config import settings
+from attribution import from_group_name as extract_company_from_group_name
+from attribution import extract_emails as extract_dialog_emails
+from attribution import resolve_companies as resolve_dialog_companies
+from core.config import settings
 
 
 log = logging.getLogger(__name__)

@@ -12,11 +12,11 @@ import logging
 import re
 from datetime import datetime, timedelta
 
-from ai_draft import generate_draft
-from client_name import extract_client_name
-from config import settings
-from database import IncomingMessage, ScenarioDraft, get_session
-from slack_client import build_permalink, post_slack
+from ai.draft import generate_draft
+from ai.client_name import extract_client_name
+from core.config import settings
+from core.database import IncomingMessage, ScenarioDraft, get_session
+from slack_integration.client import build_permalink, post_slack
 
 
 def _normalize_channel_name(name: str) -> str:

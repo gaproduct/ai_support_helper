@@ -3,8 +3,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-import chat_session
-
+from slack_integration import chat_session
 router = APIRouter()
 
 

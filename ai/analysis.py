@@ -16,8 +16,8 @@ from typing import Union
 
 from openai import OpenAI
 
-from config import settings
-from database import AnalysisResult, Dialog, get_session
+from core.config import settings
+from core.database import AnalysisResult, Dialog, get_session
 
 
 log = logging.getLogger(__name__)

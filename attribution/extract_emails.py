@@ -27,8 +27,8 @@ from typing import Iterable
 
 from sqlalchemy import text
 
-from config import settings
-from database import engine
+from core.config import settings
+from core.database import engine
 
 
 log = logging.getLogger(__name__)

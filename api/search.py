@@ -17,7 +17,7 @@ skipped — operator sees only the scenario banner.
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-import auto_response
+from ai import auto_response
 import scenarios
 
 router = APIRouter()

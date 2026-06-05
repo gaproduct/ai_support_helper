@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 
-from config import settings
+from core.config import settings
 
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)

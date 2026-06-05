@@ -3,7 +3,7 @@
 import httpx
 from fastapi import APIRouter
 
-from config import settings
+from core.config import settings
 
 router = APIRouter()
 

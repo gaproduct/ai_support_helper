@@ -23,8 +23,8 @@ from datetime import datetime, timezone
 
 from openai import OpenAI
 
-from auto_response import _GREETING_PATTERN
-from config import settings
+from ai.auto_response import _GREETING_PATTERN
+from core.config import settings
 
 log = logging.getLogger(__name__)
 

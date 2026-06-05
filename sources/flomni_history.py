@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 import httpx
 from sqlalchemy.orm import Session
 
-from config import settings
-from database import Dialog, IncomingMessage, get_session
+from core.config import settings
+from core.database import Dialog, IncomingMessage, get_session
 
 
 log = logging.getLogger(__name__)

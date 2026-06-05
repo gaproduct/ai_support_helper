@@ -18,12 +18,12 @@ import logging
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-import ai_analysis
-import chatapp_history
-import company_attribution
-import flomni_history
-from config import settings
-from database import create_tables
+from ai import analysis as ai_analysis
+from sources import chatapp_history
+from attribution import pipeline as company_attribution
+from sources import flomni_history
+from core.config import settings
+from core.database import create_tables
 
 
 logging.basicConfig(

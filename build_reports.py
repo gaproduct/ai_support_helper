@@ -21,7 +21,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from database import engine
+from core.database import engine
 
 
 log = logging.getLogger(__name__)

@@ -7,16 +7,31 @@ Slack-черновики ответов и сценарии (compliance / financ
 
 ## Что внутри
 
-| Модуль | Назначение |
+### Entry points (корень)
+
+| Файл | Назначение |
 |---|---|
-| `scheduler.py` | Daily-джобы (APScheduler): забор истории, AI-разбор, атрибуция компаний |
 | `main.py` | FastAPI-приложение: webhooks (Flomni, ChatApp, Slack), KB-поиск, чат-UI |
+| `scheduler.py` | Daily-джобы (APScheduler): забор истории, AI-разбор, атрибуция компаний |
+| `build_reports.py` | Генерация аналитических отчётов за Jan-May (HTML/XLS) |
+
+### Пакеты
+
+| Пакет | Назначение |
+|---|---|
+| `core/` | Базовая инфраструктура: `config` (env settings), `database` (SQLAlchemy модели) |
+| `ai/` | AI / NLP: `analysis`, `draft`, `response`, `auto_response`, `topic_detection`, `client_name` |
+| `sources/` | Клиенты внешних каналов: `chatapp_client`, `chatapp_history`, `flomni_history` |
+| `attribution/` | Атрибуция компании по email/группе: `pipeline`, `extract_emails`, `from_group_name`, `resolve_companies` |
+| `slack_integration/` | Slack: `client`, `drafts`, `chat_session` |
+| `kb/` | Knowledge base — обучение и хранение чанков (`train`) |
+| `tools/` | Внутренние утилиты: `db_query` (NL → SQL для Superset) |
 | `webhooks/` | Обработчики входящих webhook'ов (signature verification, draft посты) |
 | `scenarios/` | Базовые AI-сценарии: compliance, finance, accounting, payout_context |
 | `payouts_agent/` | Superset-клиент для analytics-запросов LLM-ассистентом |
-| `build_reports_v3.py` | Генерация аналитических отчётов за Jan-May 2026 (HTML/XLS) |
+| `api/` | Внутренние HTTP-роутеры (KB train, chat, search, db_query) |
+| `ui/` | FastAPI Jinja-шаблоны (chat, slack drafts, train, kb, test) |
 | `migrations/` | Идемпотентные SQL-миграции для развертки PostgreSQL с нуля |
-| `api/`, `ui/` | Внутренние HTTP-роутеры и шаблоны (KB train, chat, slack drafts UI) |
 
 ## Архитектура (high level)
 
@@ -83,7 +98,7 @@ uvicorn main:app --reload
 ## Аналитика
 
 Готовый дамп таблицы за Jan-May 2026 (5948 тикетов) собирается
-скриптом `build_reports_v3.py` и публикуется в `exports/`
+скриптом `build_reports.py` и публикуется в `exports/`
 (не коммитится — см. `.gitignore`). Описание полей и SQL-рецепты —
 в `exports/README.md` (генерируется при сборке).
 

@@ -6,8 +6,7 @@ Pipes the question through the db_query.answer() pipeline.
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-import db_query
-
+from tools import db_query
 router = APIRouter()
 
 

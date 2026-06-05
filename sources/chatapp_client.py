@@ -23,8 +23,8 @@ from typing import Any
 
 import httpx
 
-from config import settings
-from database import ChatappToken, get_session
+from core.config import settings
+from core.database import ChatappToken, get_session
 
 
 log = logging.getLogger(__name__)

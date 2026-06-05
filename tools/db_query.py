@@ -24,7 +24,7 @@ from pathlib import Path
 from openai import OpenAI
 
 import payouts_agent
-from config import settings
+from core.config import settings
 
 log = logging.getLogger(__name__)
 

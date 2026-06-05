@@ -26,9 +26,9 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from chatapp_client import ChatAppError, list_chats, list_messages
-from config import settings
-from database import Dialog, get_session
+from sources.chatapp_client import ChatAppError, list_chats, list_messages
+from core.config import settings
+from core.database import Dialog, get_session
 
 
 log = logging.getLogger(__name__)

@@ -12,8 +12,8 @@ from api.db_query import router as db_query_router
 from api.kb import router as kb_router
 from api.search import router as search_router
 from api.train import router as train_router
-from config import settings
-from database import create_tables
+from core.config import settings
+from core.database import create_tables
 from ui.routes import router as ui_router
 from webhooks.flomni import router as flomni_router
 from webhooks.inbound import router as inbound_router

@@ -12,7 +12,7 @@ Priority on each new message:
   3. KB search → answer / no_match
 """
 
-import auto_response
+from ai import auto_response
 import scenarios
 
 # {session_id: {"accumulated": str, "waiting_for": dict | None}}

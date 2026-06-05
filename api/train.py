@@ -3,8 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-import train
-
+from kb import train
 router = APIRouter()
 
 

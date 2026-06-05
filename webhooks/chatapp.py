@@ -32,10 +32,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-import auto_response
-from ai_response import post_ai_response
-from database import IncomingMessage, get_session
-from slack_client import post_slack
+from ai import auto_response
+from ai.response import post_ai_response
+from core.database import IncomingMessage, get_session
+from slack_integration.client import post_slack
 
 log = logging.getLogger(__name__)
 

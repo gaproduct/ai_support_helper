@@ -17,12 +17,12 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
-from ai_draft import generate_draft
-from client_name import extract_client_name
-from config import settings
-from database import IncomingMessage, ScenarioDraft, get_session
-from slack_client import get_thread_replies, post_slack, update_slack
-from slack_drafts import build_draft_blocks
+from ai.draft import generate_draft
+from ai.client_name import extract_client_name
+from core.config import settings
+from core.database import IncomingMessage, ScenarioDraft, get_session
+from slack_integration.client import get_thread_replies, post_slack, update_slack
+from slack_integration.drafts import build_draft_blocks
 
 log = logging.getLogger(__name__)
 
