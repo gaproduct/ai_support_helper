@@ -37,4 +37,3 @@ payouts_agent/session_state/*
 /*.sql
 /*.xlsx
 /*.xls
-seed/

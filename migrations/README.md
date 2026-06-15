@@ -8,6 +8,7 @@
 | 1 | `001_core_tables.sql` | Операционные таблицы (live pipeline): `incoming_messages`, `dialogs`, `analysis_results`, `scenario_drafts` |
 | 2 | `002_raw_messages.sql` | Raw-хранилище сырых сообщений: `bitrix_messages_raw`, `chatapp_messages_raw` |
 | 3 | `003_analytics.sql` | Аналитика и AI-классификация: `flomni_archive_analysis`, `may_dialog_classification`, `analytics_archive_jan_may` |
+| 4 | `004_company_aliases.sql` | Таблица синонимов компаний `company_aliases` (для step 4 атрибуции) |
 
 Все скрипты используют `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` —
 повторный запуск безопасен.
@@ -56,3 +57,20 @@ psql -U postgres -d support_tickets -f exports/analytics_archive_jan_may.sql
 ```
 
 Описание полей и сэмплы — `exports/README.md`.
+
+## Сидинг справочников
+
+После миграций нужно залить справочные данные из `seed/`:
+
+```bash
+docker compose exec -T db psql -U postgres -d support_tickets \
+    < seed/company_aliases.sql
+```
+
+| Файл | Что заливает |
+|---|---|
+| `seed/company_aliases.sql` | Маппинг алиасов компаний → каноническое имя (используется `apply_company_aliases` как step 4 атрибуции) |
+
+Все сиды используют `ON CONFLICT … DO UPDATE` — повторный запуск безопасен,
+ручные правки в строках с тем же `alias` будут перезаписаны.
+
