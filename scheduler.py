@@ -5,7 +5,9 @@ Jobs:
   - flomni_history      : every 24 hours at 02:00 UTC  (Get MessageHistory — Flomni)
   - chatapp_history     : every 24 hours at 02:30 UTC  (daily incremental for ChatApp,
                           окно last 25h, идемпотентно по (chat × day))
-  - ai_analysis         : every 24 hours at 04:00 UTC  (Support Ticket AI Research)
+  - ai_analysis         : every 24 hours at 04:00 UTC  (унифицированная
+                          классификация по методологии май-отчёта: side +
+                          category, «Потенциальный клиент» — одно из значений)
   - company_attribution : every 24 hours at 05:00 UTC  (email extract → Superset resolve
                           → group-name override)
 

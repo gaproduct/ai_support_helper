@@ -104,17 +104,23 @@ class Dialog(Base):
 
 class AnalysisResult(Base):
     """
-    Claude AI-generated analysis for a dialog.
-    Analogous to Google Sheets sheet "Результаты анализа диалогов".
+    AI-generated analysis for a dialog. Унифицированная классификация по
+    методологии май-отчёта: одна категория из канонического списка плюс
+    сторона (customer / executor). Списки категорий и системный промпт
+    лежат в ai_analysis.py.
 
     Fields:
       summary     — краткое содержание диалога (1-3 предложения)
-      category    — основная категория обращения (Billing, Technical, Account, …)
-      subcategory — уточнённая подкатегория
-      sentiment   — тональность клиента (positive / neutral / negative)
-      priority    — приоритет тикета (low / medium / high / critical)
-      resolution  — был ли вопрос решён в диалоге (resolved / unresolved / escalated)
-      raw_response — полный JSON-ответ Claude (для отладки)
+      category    — основная категория из канонического списка (CATEGORIES_CUST /
+                    CATEGORIES_EXEC, см. ai_analysis.py). «Потенциальный клиент»
+                    — один из вариантов.
+      side        — customer | executor (в legacy-строках до миграции 004 может
+                    содержать историческую подкатегорию, не использовать для
+                    аналитики без фильтра по created_at)
+      sentiment   — positive / neutral / negative
+      priority    — low / medium / high / critical
+      resolution  — resolved / unresolved / escalated
+      raw_response — полный JSON-ответ модели (для отладки)
     """
     __tablename__ = "analysis_results"
 
@@ -122,11 +128,11 @@ class AnalysisResult(Base):
     dialog_id = Column(Integer, ForeignKey("dialogs.id"), nullable=False)
     summary = Column(Text)
     category = Column(String(256))
-    subcategory = Column(String(256))
+    side = Column(String(256))       # customer | executor
     sentiment = Column(String(32))   # positive | neutral | negative
     priority = Column(String(32))    # low | medium | high | critical
     resolution = Column(String(32))  # resolved | unresolved | escalated
-    raw_response = Column(Text)      # full JSON from Claude
+    raw_response = Column(Text)      # full JSON from model
     created_at = Column(DateTime, default=datetime.utcnow)
 
     dialog = relationship("Dialog", back_populates="analysis")
