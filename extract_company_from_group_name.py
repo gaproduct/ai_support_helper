@@ -29,6 +29,7 @@ from collections import Counter
 
 from sqlalchemy import text
 
+from company_aliases import canonical_company
 from config import settings
 from database import engine
 
@@ -94,7 +95,7 @@ def parse_group_name(name: str) -> str | None:
     tokens = [t for t in tokens if t and not is_garbage(t)]
     if not tokens:
         return None
-    return tokens[0]
+    return canonical_company(tokens[0])
 
 
 def run(dry_run: bool) -> None:

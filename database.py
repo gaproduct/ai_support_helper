@@ -114,12 +114,18 @@ class AnalysisResult(Base):
       category    — основная категория из канонического списка (CATEGORIES_CUST /
                     CATEGORIES_EXEC, см. ai_analysis.py). «Потенциальный клиент»
                     — один из вариантов.
+      subcategory — уточнение внутри category для категорий с детализацией
+                    (SUBCATEGORIES в ai_analysis.py). NULL, если у категории
+                    нет подкатегорий или модель не смогла уточнить.
       side        — customer | executor (в legacy-строках до миграции 004 может
                     содержать историческую подкатегорию, не использовать для
                     аналитики без фильтра по created_at)
       sentiment   — positive / neutral / negative
       priority    — low / medium / high / critical
       resolution  — resolved / unresolved / escalated
+      rationale   — обоснование выбора side с прямой цитатой из переписки
+                    (зачем: якорит решение модели в реальном тексте,
+                    повышает точность customer/executor на edge-кейсах)
       raw_response — полный JSON-ответ модели (для отладки)
     """
     __tablename__ = "analysis_results"
@@ -128,10 +134,12 @@ class AnalysisResult(Base):
     dialog_id = Column(Integer, ForeignKey("dialogs.id"), nullable=False)
     summary = Column(Text)
     category = Column(String(256))
+    subcategory = Column(String(256))  # уточнение внутри category (см. SUBCATEGORIES в ai_analysis.py)
     side = Column(String(256))       # customer | executor
     sentiment = Column(String(32))   # positive | neutral | negative
     priority = Column(String(32))    # low | medium | high | critical
     resolution = Column(String(32))  # resolved | unresolved | escalated
+    rationale = Column(Text)         # обоснование side с цитатой
     raw_response = Column(Text)      # full JSON from model
     created_at = Column(DateTime, default=datetime.utcnow)
 

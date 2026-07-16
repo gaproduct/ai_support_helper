@@ -43,23 +43,24 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _LITERAL_WHITESPACE_RE = re.compile(r"\\{1,2}[nrt]")
 
 # Домены нашей стороны — НЕ executor.
-BLACKLIST_DOMAINS = {
-    "madetask.com",
-    "madetask.ru",
-    "madetask.team",
-    "remozo.com",
-    "chatapp.online",
-}
+# Точные совпадения для доменов, не входящих в брендовые префиксы ниже.
+BLACKLIST_DOMAINS_EXACT: frozenset[str] = frozenset({"chatapp.online"})
+
+# Префиксы доменов наших брендов — перекрывают все TLD и субдомены:
+#   @madetask.com, @madetask.ru, @madetask.team, …
+#   @made-task.com, @made-task.ru, …
+#   @remozo.com, @remozo.ru, …
+BLACKLIST_DOMAIN_PREFIXES: tuple[str, ...] = ("madetask.", "made-task.", "remozo.")
 
 # Локальные префиксы, которые не могут принадлежать живому исполнителю.
-BLACKLIST_LOCAL_PARTS = {
+BLACKLIST_LOCAL_PARTS: frozenset[str] = frozenset({
     "noreply",
     "no-reply",
     "postmaster",
     "mailer-daemon",
     "donotreply",
     "do-not-reply",
-}
+})
 
 
 def _is_acceptable(email: str) -> bool:
@@ -67,7 +68,9 @@ def _is_acceptable(email: str) -> bool:
     if "@" not in email:
         return False
     local, _, domain = email.rpartition("@")
-    if domain in BLACKLIST_DOMAINS:
+    if domain in BLACKLIST_DOMAINS_EXACT:
+        return False
+    if any(domain.startswith(pfx) for pfx in BLACKLIST_DOMAIN_PREFIXES):
         return False
     if local in BLACKLIST_LOCAL_PARTS:
         return False

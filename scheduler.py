@@ -35,6 +35,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+# On a sleep-prone local host (Docker on macOS) the process clock stops while
+# the machine sleeps, so cron fires are missed by many hours. A 24h grace +
+# coalesce lets each daily job still run once when the host wakes, instead of
+# APScheduler silently skipping it.
+_MISFIRE_GRACE = 24 * 3600
+
+
 def main() -> None:
     create_tables()
     log.info("Database ready.")
@@ -46,7 +53,8 @@ def main() -> None:
         trigger=CronTrigger(hour=2, minute=0),
         id="flomni_history",
         name="Fetch Flomni message history",
-        misfire_grace_time=3600,
+        misfire_grace_time=_MISFIRE_GRACE,
+        coalesce=True,
     )
 
     scheduler.add_job(
@@ -54,7 +62,8 @@ def main() -> None:
         trigger=CronTrigger(hour=2, minute=30),
         id="chatapp_history",
         name="ChatApp daily history backfill (last 25h)",
-        misfire_grace_time=3600,
+        misfire_grace_time=_MISFIRE_GRACE,
+        coalesce=True,
     )
 
     scheduler.add_job(
@@ -62,7 +71,8 @@ def main() -> None:
         trigger=CronTrigger(hour=4, minute=0),
         id="ai_analysis",
         name="AI analysis of dialogs",
-        misfire_grace_time=3600,
+        misfire_grace_time=_MISFIRE_GRACE,
+        coalesce=True,
     )
 
     scheduler.add_job(
@@ -70,10 +80,15 @@ def main() -> None:
         trigger=CronTrigger(hour=5, minute=0),
         id="company_attribution",
         name="Daily company attribution (email→Superset→group-name)",
-        misfire_grace_time=3600,
+        misfire_grace_time=_MISFIRE_GRACE,
+        coalesce=True,
     )
 
     log.info("Scheduler starting. Jobs: %s", [j.name for j in scheduler.get_jobs()])
+
+    # Recover from any downtime before entering the blocking scheduler loop.
+    flomni_history.detect_gap_and_backfill()
+
     scheduler.start()
 
 
