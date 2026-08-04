@@ -18,6 +18,11 @@ Slack-черновики ответов и сценарии (compliance / financ
 | `migrations/` | Идемпотентные SQL-миграции для развертки PostgreSQL с нуля |
 | `api/`, `ui/` | Внутренние HTTP-роутеры и шаблоны (KB train, chat, slack drafts UI) |
 
+## Документация
+
+- [`TICKETS_AND_METRICS.md`](./TICKETS_AND_METRICS.md) — что такое тикет, как мы его считаем, весь пайплайн обработки и как считаются метрики (resolution time, handoff time и остальные).
+- [`migrations/README.md`](./migrations/README.md) — порядок применения SQL-миграций.
+
 ## Архитектура (high level)
 
 ```
