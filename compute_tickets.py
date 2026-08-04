@@ -13,8 +13,11 @@ compute_tickets.py — вычисляет тикеты по методологи
 - customer-сторона: max(1, кол-во уникальных email исполнителей) тикетов на диалог
 - Исключаются: рассылки про праздники/банковские выходные, внутренние чаты MadeTask
 
-Кросс-кабинетные дубли (один Telegram-чат в двух Flomni-кабинетах) должны быть
-удалены из таблицы dialogs до запуска этого скрипта.
+Кросс-кабинетные дубли (один Telegram-чат в двух Flomni-кабинетах под разными
+client_id) удаляются автоматически внутри compute() перед вставкой тикетов:
+дубликат = совпадение содержания переписки при той же компании и дате; из пары
+остаётся чат с групповым именем «…MadeTask». Ручная предварительная чистка
+таблицы dialogs больше не требуется.
 """
 
 import argparse
@@ -31,7 +34,10 @@ log = logging.getLogger(__name__)
 
 # ── Константы методологии ──────────────────────────────────────────────────
 
-METHODOLOGY = "D"
+# Методология E: как D по фильтрам/квалификации диалогов, но customer-сторона
+# считает тикеты по «группам»: несколько email в ОДНОМ сообщении = 1 тикет,
+# разные email в РАЗНЫХ сообщениях = разные тикеты (см. _executor_email_groups).
+METHODOLOGY = "E"
 
 KYC_CATEGORIES: frozenset[str] = frozenset({
     "KYC",
@@ -161,11 +167,177 @@ def _qualifies_d(msgs: list[dict], category: str) -> bool:
     )
 
 
-def _ticket_count(msgs: list[dict], side: str) -> int:
+def _executor_msg_emails(m: dict) -> set[str]:
+    """Внешние email исполнителей внутри ОДНОГО сообщения."""
+    return {
+        e.lower()
+        for e in _EMAIL_RE.findall(m.get("text", "") or "")
+        if not _is_internal_email(e)
+    }
+
+
+def _executor_email_groups(msgs: list[dict]) -> int:
+    """Число «групп» исполнителей (методология E).
+
+    Правило: email'ы, перечисленные в ОДНОМ сообщении, — один тикет; email'ы,
+    появившиеся в РАЗНЫХ сообщениях, — разные тикеты. Реализовано как число
+    компонент связности графа, где вершины — email, а ребро соединяет адреса,
+    упомянутые вместе в одном сообщении (один и тот же адрес в разных
+    сообщениях остаётся одной вершиной, т.е. не даёт лишний тикет)."""
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for m in msgs:
+        emails = sorted(_executor_msg_emails(m))
+        if not emails:
+            continue
+        for e in emails:
+            find(e)
+        for e in emails[1:]:
+            union(emails[0], e)
+
+    if not parent:
+        return 0
+    return len({find(e) for e in parent})
+
+
+def _ticket_count(msgs: list[dict], side: str, methodology: str = METHODOLOGY) -> int:
     if side == "executor":
         return 1
+    if methodology == "E":
+        return max(1, _executor_email_groups(msgs))
     emails = _executor_emails(msgs)
     return max(1, len(emails))
+
+
+# ── Кросс-кабинетная дедупликация Flomni ───────────────────────────────────
+# Один и тот же групповой TG-чат приходит в двух Flomni-кабинетах (два бот-
+# аккаунта) под разными client_id. Схлопывать такую пару ТОЛЬКО по «та же
+# компания + день» нельзя — у одной компании легитимно бывает несколько разных
+# чатов за день (разные исполнители/менеджеры), и это разные обращения.
+#
+# Надёжный признак дубля — совпадение СОДЕРЖАНИЯ переписки, а не поля company:
+#   * у зеркал company-поле нередко расходится («ООО "Эктивейт"» vs «Эктивейт
+#     ООО»), а в тексте перед каждым сообщением стоит разный «@автор:»-префикс —
+#     поэтому сравниваем множества сообщений, очищенных от автор-префикса;
+#   * одно зеркало обычно захватывает лишь часть сообщений другого, поэтому
+#     критерий — ВЛОЖЕННОСТЬ (доля меньшего множества внутри большего), а не
+#     Жаккар.
+# Чтобы не склеить разные компании, случайно поделившиеся текстом (один менеджер
+# в двух чатах), пара дополнительно проверяется на совместимость по токенам
+# company-поля. Из пары оставляем чат с групповым именем «…MadeTask», иначе — с
+# большим messages_count.
+
+_AUTHOR_MSG_PREFIX_RE = re.compile(r"^@\S+[^:]*:\s*")
+# Юрформы и служебные токены, не различающие компанию.
+_COMPANY_STOPWORDS: frozenset[str] = frozenset({
+    "ооо", "оао", "зао", "пао", "ао", "ип", "llc", "ltd", "inc", "sro",
+    "made", "task", "madetask", "company",
+})
+_COMPANY_TOKEN_RE = re.compile(r"[0-9a-zа-яё]{2,}", re.IGNORECASE)
+
+# Дубль: не менее _DEDUP_MIN_SHARED общих содержательных сообщений, у обоих
+# диалогов их не менее _DEDUP_MIN_SIZE, и вложенность меньшего в больший
+# не ниже _DEDUP_MIN_CONTAINMENT.
+_DEDUP_MIN_SHARED = 4
+_DEDUP_MIN_SIZE = 4
+_DEDUP_MIN_CONTAINMENT = 0.9
+
+
+def _is_group_chat(chat_name: str | None) -> bool:
+    return bool(chat_name and "madetask" in chat_name.lower().replace(" ", ""))
+
+
+def _content_signature(msgs: list[dict]) -> frozenset[str]:
+    """Множество содержательных сообщений (len>=12) без «@автор:»-префикса."""
+    out: set[str] = set()
+    for m in msgs:
+        txt = _AUTHOR_MSG_PREFIX_RE.sub("", (m.get("text") or "").strip())
+        txt = re.sub(r"\s+", " ", txt).lower().strip()
+        if len(txt) >= 12:
+            out.add(txt)
+    return frozenset(out)
+
+
+def _company_tokens(company: str | None) -> frozenset[str]:
+    return frozenset(
+        _COMPANY_TOKEN_RE.findall((company or "").lower())
+    ) - _COMPANY_STOPWORDS
+
+
+def _company_compatible(a, b) -> bool:
+    """Совместимы, если у одной из сторон company не резолвится, либо токены
+    company-поля пересекаются. Отсекает склейку разных компаний с общим текстом."""
+    ta, tb = _company_tokens(a.company), _company_tokens(b.company)
+    if not ta or not tb:
+        return True
+    return bool(ta & tb)
+
+
+def _dedupe_cross_cabinet(dialogs: list) -> tuple[list, int]:
+    """Удаляет кросс-кабинетные Flomni-дубли (совпадение контента при совместимой
+    компании, в тот же день). Возвращает (оставшиеся_диалоги, кол-во_удалённых).
+    Не-Flomni диалоги проходят насквозь без изменений."""
+    by_date: dict[str, list] = {}
+    passthrough: list = []
+    for d in dialogs:
+        if d.source != "flomni":
+            passthrough.append(d)
+            continue
+        by_date.setdefault(str(d.dialog_date), []).append(d)
+
+    kept_all: list = []
+    dropped = 0
+    for members in by_date.values():
+        if len(members) == 1:
+            kept_all.append(members[0])
+            continue
+        sigs = {
+            d.id: _content_signature(json.loads(d.messages_json or "[]"))
+            for d in members
+        }
+        # Приоритет сохранения: групповое имя «…MadeTask», затем больший объём.
+        ordered = sorted(
+            members,
+            key=lambda x: (_is_group_chat(x.chat_name), x.messages_count or 0),
+            reverse=True,
+        )
+        kept: list = []
+        for d in ordered:
+            sd = sigs[d.id]
+            is_dup = False
+            for k in kept:
+                sk = sigs[k.id]
+                inter = len(sd & sk)
+                if (
+                    inter >= _DEDUP_MIN_SHARED
+                    and len(sd) >= _DEDUP_MIN_SIZE
+                    and len(sk) >= _DEDUP_MIN_SIZE
+                    and inter / min(len(sd), len(sk)) >= _DEDUP_MIN_CONTAINMENT
+                    and _company_compatible(d, k)
+                ):
+                    is_dup = True
+                    break
+            if is_dup:
+                dropped += 1
+            else:
+                kept.append(d)
+        kept_all.extend(kept)
+
+    return passthrough + kept_all, dropped
 
 
 # ── Основная логика ────────────────────────────────────────────────────────
@@ -230,6 +402,12 @@ def compute(
                 seen_key[key] = d
         dialogs = list(seen_key.values())
 
+        # Кросс-кабинетная дедупликация Flomni: один групповой TG-чат из двух
+        # кабинетов (разные client_id) = дубликат при совпадении контента + той
+        # же компании и дате. Раньше это делалось вручную до запуска скрипта;
+        # теперь выполняется автоматически, чтобы дубли не попадали в отчёт.
+        dialogs, dropped_cross_cabinet = _dedupe_cross_cabinet(dialogs)
+
         # Удаляем старые записи в диапазоне дат перед вставкой
         delete_params: dict = {"methodology": methodology}
         delete_where = "methodology = :methodology"
@@ -263,7 +441,7 @@ def compute(
                 continue
 
             emails = _executor_emails(msgs)
-            count = _ticket_count(msgs, d.side)
+            count = _ticket_count(msgs, d.side, methodology)
 
             db.execute(sqlt("""
                 INSERT INTO tickets
@@ -298,8 +476,9 @@ def compute(
         db.commit()
 
     log.info(
-        "compute_tickets: inserted/updated=%d  skipped_broadcast=%d  skipped_noise=%d  skipped_method_d=%d",
-        inserted, skipped_broadcast, skipped_noise, skipped_method_d,
+        "compute_tickets: inserted/updated=%d  skipped_broadcast=%d  skipped_noise=%d  "
+        "skipped_method_d=%d  dropped_cross_cabinet=%d",
+        inserted, skipped_broadcast, skipped_noise, skipped_method_d, dropped_cross_cabinet,
     )
     return inserted
 

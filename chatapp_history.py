@@ -26,7 +26,12 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from chatapp_client import ChatAppError, list_chats, list_messages
+from chatapp_client import (
+    ChatAppError,
+    get_employee_roster,
+    list_chats,
+    list_messages,
+)
 from config import settings
 from database import Dialog, get_session
 
@@ -73,18 +78,45 @@ def _map_message(msg: dict[str, Any]) -> dict[str, Any]:
 
     Поля сделаны совместимыми с существующей таблицей dialogs (direction/time/text),
     чтобы потом проще было смерджить.
+
+    Для outbound сообщений `fromUser` всегда общий бизнес-аккаунт (RemozoSupport),
+    поэтому реального оператора достаём из `created.id` и резолвим в email через
+    роутер сотрудников компании. Автоматические сообщения бота (fromApp.sender ==
+    "system") помечаем operator_is_bot=True и не приписываем живому оператору.
     """
     side = msg.get("side", "")
     direction = "outbound" if side == "out" else "inbound"
     from_user = msg.get("fromUser") or {}
+    from_app = msg.get("fromApp") or {}
+    app_sender = from_app.get("sender") or ""
+
+    author = from_user.get("name") or ""
+    operator_id = ""
+    operator_email = ""
+    operator_is_bot = False
+    if direction == "outbound":
+        created = msg.get("created") or {}
+        operator_id = str(created.get("id") or "")
+        operator_is_bot = app_sender == "system"
+        if operator_id:
+            info = get_employee_roster().get(operator_id) or {}
+            operator_email = info.get("email") or ""
+            # Живого оператора выносим в author; бота оставляем под общим именем.
+            if operator_email and not operator_is_bot:
+                author = operator_email
+
     return {
         "text":      _msg_text(msg),
         "direction": direction,
         "time":      _unix_to_iso(msg.get("time")),
         "time_unix": msg.get("time"),
         "type":      msg.get("type", ""),
-        "author":    from_user.get("name") or "",
+        "author":    author,
         "author_id": from_user.get("id") or "",
+        "operator_id":    operator_id,
+        "operator_email": operator_email,
+        "operator_is_bot": operator_is_bot,
+        "app_sender":     app_sender,
         "phone":     from_user.get("phone") or "",
         "email":     from_user.get("email") or "",
         "message_id": msg.get("id") or "",

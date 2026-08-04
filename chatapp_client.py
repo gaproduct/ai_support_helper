@@ -36,6 +36,8 @@ _ALLOWED: set[tuple[str, str]] = {
     ("GET",  "/v1/tokens/check"),
     ("GET",  "/v1/licenses/:licenseId/messengers/:messengerType/chats"),
     ("GET",  "/v1/licenses/:licenseId/messengers/:messengerType/chats/:chatId/messages"),
+    ("GET",  "/v1/companies"),
+    ("GET",  "/v1/companies/:companyId/employees"),
 }
 
 # За сколько секунд до истечения accessToken пробуем refresh.
@@ -218,6 +220,62 @@ def list_chats(
         query=query,
         auth_token=token,
     )
+
+
+def list_companies() -> dict[str, Any]:
+    """GET /v1/companies — компании текущего аккаунта."""
+    token = get_access_token()
+    return _request("GET", "/v1/companies", auth_token=token)
+
+
+def list_employees(company_id: str, *, limit: int = 200) -> dict[str, Any]:
+    """GET /v1/companies/{companyId}/employees — сотрудники компании (id/email/fullName)."""
+    token = get_access_token()
+    return _request(
+        "GET",
+        "/v1/companies/:companyId/employees",
+        path_params={"companyId": company_id},
+        query={"limit": limit},
+        auth_token=token,
+    )
+
+
+# ── Operator roster (author_id -> email) ─────────────────────────────────────
+# Динамический резолв операторов, которые в сыром payload сообщения приходят как
+# created.id (общий бизнес-аккаунт RemozoSupport схлопывает их в один author_id).
+_ROSTER_CACHE: dict[str, dict[str, Any]] | None = None
+
+
+def get_employee_roster(*, force: bool = False) -> dict[str, dict[str, Any]]:
+    """
+    Вернуть {str(employee_id): {"email":..., "name":...}} по всем компаниям аккаунта.
+    Кэшируется в памяти процесса; force=True перезапрашивает.
+    """
+    global _ROSTER_CACHE
+    if _ROSTER_CACHE is not None and not force:
+        return _ROSTER_CACHE
+    roster: dict[str, dict[str, Any]] = {}
+    companies = list_companies().get("items", [])
+    for comp in companies:
+        cid = comp.get("companyId")
+        if cid is None:
+            continue
+        try:
+            emps = list_employees(str(cid)).get("items", [])
+        except ChatAppError as exc:
+            log.warning("ChatApp: employees fetch failed for company %s: %s", cid, exc)
+            continue
+        for e in emps:
+            uid = e.get("id")
+            if uid is None:
+                continue
+            roster[str(uid)] = {
+                "email": e.get("email"),
+                "name": e.get("fullName") or e.get("email"),
+            }
+    _ROSTER_CACHE = roster
+    log.info("ChatApp: employee roster loaded (%d operators)", len(roster))
+    return roster
 
 
 def list_messages(
