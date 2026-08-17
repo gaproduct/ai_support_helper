@@ -12,15 +12,16 @@ Dedup key: message_id when present, else (time, direction, text) — Flomni hist
 returns empty mids, so the fingerprint path is the norm.
 """
 import json
+import os
 from collections import defaultdict
 from datetime import date
 
 from database import get_session, Dialog
 import flomni_history as fh
 
-SESSIONS = "/tmp/flomni_sessions.json"
-WEEK_LO = "2026-07-30"
-WEEK_HI = "2026-08-01"  # exclusive
+SESSIONS = os.environ.get("FLOMNI_SESSIONS", "/tmp/flomni_sessions.json")
+WEEK_LO = os.environ.get("FLOMNI_WEEK_LO", "2026-07-30")
+WEEK_HI = os.environ.get("FLOMNI_WEEK_HI", "2026-08-01")  # exclusive
 
 
 def dedup_key(m: dict):

@@ -473,6 +473,13 @@ def _validate_subcategory(category: str, subcategory: str | None) -> str | None:
     return None
 
 
+def _strip_nul(value: str | None) -> str | None:
+    """Postgres text columns reject NUL (0x00), which LLM responses sometimes contain."""
+    if value is None:
+        return None
+    return value.replace("\x00", "")
+
+
 def run() -> None:
     log.info("Starting AI analysis job.")
 
@@ -514,15 +521,15 @@ def run() -> None:
         with get_session() as db:
             analysis = AnalysisResult(
                 dialog_id=dialog.id,
-                summary=result.get("summary", ""),
+                summary=_strip_nul(result.get("summary", "")),
                 category=category,
                 subcategory=subcategory,
                 side=side,
-                sentiment=result.get("sentiment", ""),
-                priority=result.get("priority", ""),
-                resolution=result.get("resolution", ""),
-                rationale=result.get("rationale", ""),
-                raw_response=raw_response,
+                sentiment=_strip_nul(result.get("sentiment", "")),
+                priority=_strip_nul(result.get("priority", "")),
+                resolution=_strip_nul(result.get("resolution", "")),
+                rationale=_strip_nul(result.get("rationale", "")),
+                raw_response=_strip_nul(raw_response),
             )
             db.add(analysis)
 
