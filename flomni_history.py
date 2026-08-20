@@ -139,7 +139,11 @@ def _executor_email_from_payload(payload: str) -> str | None:
 
 
 def _upsert_dialog(
-    db: Session, client_id: str, messages: list[dict], chat_name: str | None = None
+    db: Session,
+    client_id: str,
+    messages: list[dict],
+    chat_name: str | None = None,
+    client_email: str | None = None,
 ) -> None:
     """
     Create a new Dialog or append messages to an existing open one.
@@ -148,6 +152,10 @@ def _upsert_dialog(
     On creation, populate dialog_date, chat_name (Flomni contact/group name from
     IncomingMessage.name) and executor_email so company attribution works without
     waiting for the offline backfill job.
+
+    `client_email` — адрес из metaData вебхука. Используется запасным вариантом,
+    когда в тексте переписки email не встретился: у обращений из виджета и ЛК
+    это единственный источник для определения компании.
     """
     if not messages:
         return
@@ -176,7 +184,7 @@ def _upsert_dialog(
             started_at=started_at,
             dialog_date=dialog_date,
             chat_name=(chat_name or None),
-            executor_email=_executor_email_from_payload(payload),
+            executor_email=_executor_email_from_payload(payload) or client_email,
             processed=False,
         )
         db.add(dialog)
@@ -192,7 +200,7 @@ def _upsert_dialog(
         if not dialog.chat_name and chat_name:
             dialog.chat_name = chat_name
         if not dialog.executor_email:
-            dialog.executor_email = _executor_email_from_payload(payload)
+            dialog.executor_email = _executor_email_from_payload(payload) or client_email
         log.info("Appended %d messages to Flomni dialog for client %s.", len(new_msgs), client_id)
 
     db.commit()
@@ -262,7 +270,13 @@ def run() -> None:
                 db_record.last_message_at = datetime.now(timezone.utc).isoformat()
                 db.commit()
 
-            _upsert_dialog(db, record.client_id, messages, chat_name=record.name)
+            _upsert_dialog(
+                db,
+                record.client_id,
+                messages,
+                chat_name=record.name,
+                client_email=record.client_email,
+            )
 
     log.info("Flomni history fetch job complete.")
 

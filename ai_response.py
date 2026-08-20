@@ -15,6 +15,7 @@ import logging
 
 import auto_response
 import scenarios
+from config import settings
 from database import IncomingMessage, get_session
 from slack_client import post_slack
 from slack_drafts import duplicate_to_drafts
@@ -82,6 +83,10 @@ def post_ai_response(
     thread_ts: str | None,
     client_id: str | None = None,
 ) -> None:
+    if not settings.ai_autoresponse_enabled:
+        log.info("AI autoresponse disabled, skipping client=%s", client_id)
+        return
+
     if not message_text or not message_text.strip():
         return
 

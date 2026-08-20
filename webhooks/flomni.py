@@ -90,27 +90,68 @@ def _build_root_blocks(
     ]
 
 
-def _parse_event(event: dict[str, Any]) -> tuple[str, str, str, str]:
-    """Returns (client_id, name, message_text, message_time)."""
-    client_id = str(event.get("receiver", ""))
-    name = event.get("profile", {}).get("name", "") or ""
+# Контакты клиента Flomni кладёт в metaData, а не в profile: у виджета на сайте
+# и у ЛК заказчика profile приходит пустым. Названия полей задаются в настройках
+# канала, поэтому сверяем ключи без учёта регистра и лишних пробелов.
+_METADATA_NAME_KEYS = frozenset({"имя клиента", "имя", "name", "client name"})
+_METADATA_EMAIL_KEYS = frozenset({"email", "e-mail", "почта", "почта клиента"})
+
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
+
+
+def _parse_metadata(event: dict[str, Any]) -> tuple[str, str]:
+    """Достаём (имя, email) из metaData. Пустые строки, если их там нет."""
+    meta = event.get("metaData")
+    if not isinstance(meta, dict):
+        return "", ""
+
+    name = ""
+    email = ""
+    for raw_key, raw_value in meta.items():
+        if not isinstance(raw_value, str):
+            continue
+        key = str(raw_key).strip().lower()
+        value = raw_value.strip()
+        if not value:
+            continue
+        if not name and key in _METADATA_NAME_KEYS:
+            name = value
+        if not email and key in _METADATA_EMAIL_KEYS and _EMAIL_RE.fullmatch(value):
+            email = value.lower()
+    return name, email
+
+
+def _parse_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Раскладываем событие Flomni на поля, которые пишем в IncomingMessage."""
     content = event.get("content", [])
     first = content[0] if content else {}
-    message_text = first.get("msg", {}).get("text", "") or ""
-    message_time = first.get("time", "") or ""
-    return client_id, name, message_text, message_time
+    profile_name = (event.get("profile") or {}).get("name", "") or ""
+    meta_name, meta_email = _parse_metadata(event)
+    return {
+        "client_id": str(event.get("receiver", "")),
+        # profile.name — название группового чата («КЛИЕНТ × MT»), по нему потом
+        # определяется компания. metaData даёт имя человека: годится как подпись
+        # в Slack, но компанию из него не вытащить. Отсюда флаг is_group_name.
+        "name": profile_name or meta_name,
+        "is_group_name": bool(profile_name),
+        "client_email": meta_email,
+        "message_text": first.get("msg", {}).get("text", "") or "",
+        "message_time": first.get("time", "") or "",
+    }
 
 
 def _create_new_incoming_message(
     db: Session,
-    client_id: str,
-    name: str,
-    message_text: str,
-    message_time: str,
+    parsed: dict[str, Any],
 ) -> tuple[str, str, bool, str | None]:
     """
     Создаёт новый IncomingMessage + новый Slack-тред для клиента.
     """
+    client_id = parsed["client_id"]
+    name = parsed["name"]
+    message_text = parsed["message_text"]
+    message_time = parsed["message_time"]
+
     accumulated = message_text
     should_trigger = not auto_response._is_greeting(message_text)
 
@@ -121,6 +162,7 @@ def _create_new_incoming_message(
     record = IncomingMessage(
         client_id=client_id,
         name=name,
+        client_email=parsed["client_email"] or None,
         first_message_text=accumulated,
         first_message_at=message_time,
         last_message_at=message_time,
@@ -164,7 +206,11 @@ def _upsert_incoming_message(
 
     Returns (client_id, message_text_for_ai, should_trigger, slack_thread_ts).
     """
-    client_id, name, message_text, message_time = _parse_event(event)
+    parsed = _parse_event(event)
+    client_id = parsed["client_id"]
+    name = parsed["name"]
+    message_text = parsed["message_text"]
+    message_time = parsed["message_time"]
 
     if not client_id:
         log.warning("Webhook event missing 'receiver': %s", event)
@@ -183,7 +229,9 @@ def _upsert_incoming_message(
     # TG-duplicate fallback: when Flomni delivers the same TG group via two
     # different connectors (different receiver IDs but the same channel name),
     # route the second webhook to the existing record instead of creating a twin.
-    if not existing:
+    # Работает только по названиям групповых чатов. Имя человека из metaData сюда
+    # не годится: тёзки из разных компаний склеились бы в одну запись.
+    if not existing and parsed["is_group_name"]:
         normalized = _normalize_channel_name(name)
         if normalized:
             recent_cutoff = datetime.utcnow() - timedelta(hours=24)
@@ -225,6 +273,11 @@ def _upsert_incoming_message(
         accumulated = ((existing.first_message_text or "") + " " + message_text).strip()
         existing.first_message_text = accumulated
         existing.last_message_at = message_time
+        # Клиент мог представиться не в первом сообщении, а позже.
+        if not existing.client_email and parsed["client_email"]:
+            existing.client_email = parsed["client_email"]
+        if not existing.name and name:
+            existing.name = name
 
         post_slack(
             f"{SLACK_TAG} | 💬 *Клиент:* {message_text}",
@@ -246,9 +299,7 @@ def _upsert_incoming_message(
         # Pass only the new message_text to AI analysis
         return client_id, message_text, should_trigger, existing.slack_thread_ts
 
-    return _create_new_incoming_message(
-        db, client_id, name, message_text, message_time
-    )
+    return _create_new_incoming_message(db, parsed)
 
 
 def handle_flomni_payload(payload: Any) -> dict[str, str]:

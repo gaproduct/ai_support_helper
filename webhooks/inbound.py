@@ -11,10 +11,11 @@ ONE endpoint для всех источников (Flomni / ChatApp / ...).
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from webhooks.chatapp import handle_chatapp_payload
 from webhooks.flomni import handle_flomni_payload
@@ -64,10 +65,20 @@ def detect_source(payload: Any) -> Literal["chatapp", "flomni"]:
 
 @router.post("/webhook/inbound")
 async def inbound_webhook(request: Request) -> dict[str, str]:
+    body = await request.body()
+
+    # Провайдеры проверяют живость URL пробным POST'ом: ChatApp шлёт пустое тело
+    # и сохраняет callbackUrl только при 2xx в ответ. Поэтому на всё, что не
+    # разбирается в событие, отвечаем ok, а не 400.
     try:
-        payload: Any = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
+        payload: Any = json.loads(body)
+    except ValueError:
+        log.info("Inbound probe: body is not JSON (%d bytes), replying ok", len(body))
+        return {"status": "ok"}
+
+    if not isinstance(payload, (dict, list)):
+        log.info("Inbound probe: JSON is %s, not an event, replying ok", type(payload).__name__)
+        return {"status": "ok"}
 
     source = detect_source(payload)
     log.info("Inbound webhook routed to source=%s", source)

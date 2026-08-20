@@ -39,6 +39,8 @@ class IncomingMessage(Base):
     id = Column(Integer, primary_key=True)
     client_id = Column(String(255), nullable=False, index=True)  # receiver ID
     name = Column(String(512))
+    # Email клиента из metaData вебхука (у виджета и ЛК profile приходит пустым).
+    client_email = Column(String(320))
     first_message_text = Column(Text)       # accumulated message text (all messages joined)
     first_message_at = Column(String(64))   # kept as string to match Flomni's format
     last_message_at = Column(String(64))

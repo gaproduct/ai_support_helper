@@ -50,5 +50,10 @@ class Settings(BaseSettings):
     webhook_port: int = 8000
     log_level: str = "INFO"
 
+    # Тихий режим вебхуков. При false входящие сообщения по-прежнему пишутся в
+    # incoming_messages (это питает flomni_history и атрибуцию по chat_name),
+    # но AI-автоответ не запускается и запросы в OpenAI не уходят.
+    ai_autoresponse_enabled: bool = True
+
 
 settings = Settings()
