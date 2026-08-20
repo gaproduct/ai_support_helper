@@ -1,5 +1,5 @@
 """
-Ad-hoc отчёт за 1–15 августа 2026 по методологии E из live-БД
+Ad-hoc отчёт за 1–14 августа 2026 по методологии E из live-БД
 (таблица tickets + последний AnalysisResult для подкатегорий). Печатает HTML в stdout.
 
 Запуск (из контейнера, читает БД, пишет HTML на хост):
@@ -11,7 +11,7 @@ from sqlalchemy import text
 from database import engine
 import fine_subcategory as fs
 
-DATE_FROM, DATE_TO = "2026-08-01", "2026-08-15"
+DATE_FROM, DATE_TO = "2026-08-01", "2026-08-14"
 SUBCAT_CATEGORIES = (
     "Выплаты и проблемы с ними",
     "KYC",
@@ -21,7 +21,7 @@ SUBCAT_CATEGORIES = (
 )
 WEEKS = [
     ("01-07 августа", "2026-08-01", "2026-08-07"),
-    ("08-15 августа", "2026-08-08", "2026-08-15"),
+    ("08-14 августа", "2026-08-08", "2026-08-14"),
 ]
 
 
@@ -112,7 +112,9 @@ fine = q("""
       LEFT JOIN manual_category_override ovr ON ovr.dialog_id=t.dialog_id
      WHERE t.methodology='E' AND t.dialog_date BETWEEN :a AND :b
        AND f.fine_bucket <> :depbucket
-       AND ovr.dialog_id IS NULL
+       -- диалоги с ручной правкой категории берём только если бакет посчитан
+       -- под ту же подкатегорию, иначе он остался от старой классификации
+       AND (ovr.dialog_id IS NULL OR ovr.subcategory = f.subcategory)
      GROUP BY f.subcategory, f.fine_bucket
 """, **P)
 
@@ -254,8 +256,8 @@ def heat(intensity):
 CSS = """@page{size:A4;margin:18mm 12mm}body{font-family:-apple-system,"Segoe UI",Arial,sans-serif;color:#2C3E50;line-height:1.4}h1{color:#1A2935;font-size:26px;margin:0 0 4px}h2{color:#34495E;font-size:18px;border-left:4px solid #3498DB;padding-left:10px;margin:24px 0 12px;page-break-after:avoid}h3{color:#2C3E50;font-size:16px;margin:18px 0 8px}h4{color:#34495E;font-size:13px;margin:10px 0 6px}.hero{background:linear-gradient(135deg,#E74C3C,#922B21);color:#fff;padding:18px 22px;border-radius:8px;margin-bottom:18px}.hero .sub{opacity:.85;font-size:13px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}.kpi{background:#fff;border:1px solid #E6EAEE;border-radius:6px;padding:10px 12px;text-align:center}.kpi .v{font-size:24px;font-weight:700;color:#3498DB}.kpi .l{font-size:10px;text-transform:uppercase;color:#7f8c8d;margin-top:2px}.card{border:1px solid #E6EAEE;border-radius:6px;padding:14px 16px;margin-bottom:14px;background:#fff}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#34495E;color:#fff;padding:6px 8px;text-align:left;font-weight:600}td{padding:5px 8px;border-bottom:1px solid #ECF0F1}table.top15 td.rank{text-align:center;font-weight:700;color:#7f8c8d;width:30px}table.top15 td.cn{font-weight:600;max-width:220px}table.top15 td.tot{font-weight:700;background:#34495E;color:#fff;text-align:center}table.top15 td{text-align:center}.company-card{background:#FBFCFD;border:1px solid #DCE3EA;border-radius:8px;padding:14px 18px;margin-bottom:18px}.company-card h3{font-size:18px;margin-top:0;color:#1A2935}.stats{display:flex;gap:16px;margin:12px 0}.stat{flex:1;text-align:center;background:#fff;border:1px solid #E6EAEE;border-radius:6px;padding:10px}.stat .val{font-size:24px;font-weight:700;color:#3498DB}.stat .lbl{font-size:10px;color:#7f8c8d;text-transform:uppercase;margin-top:2px}table.d{font-size:10px}.subcat td.sc{padding-left:24px;color:#566573;font-style:italic}.subcat td.sc::before{content:"\\21B3 ";color:#95A5A6}.fine td{background:#FCFDFE;font-size:10px}.fine td.fc{padding-left:48px;color:#7F8C8D}.fine td.fc::before{content:"\\2022 ";color:#BDC3C7}.fine .fd{color:#AAB2BB;font-style:normal}.disclaimer{font-size:9px;color:#95A5A6;font-style:italic;margin-top:14px}.legend{display:flex;gap:14px;font-size:11px;margin:8px 0 0;color:#7F8C8D}.legend .sw{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;margin-right:4px}.row-flex{display:flex;gap:16px;align-items:center}.row-flex>div:first-child{flex-shrink:0}table.top15 th.rot{writing-mode:vertical-rl;transform:rotate(180deg);padding:8px 4px;font-size:10px;height:140px;vertical-align:bottom;white-space:nowrap;max-width:32px}table.cc-heatmap td.cn{max-width:280px;font-size:10.5px}table.cc-heatmap th{font-size:10.5px}table.cc-heatmap tfoot td{background:#34495E;color:#fff;font-weight:700}table.cc-heatmap tfoot td.cn{background:#2C3E50}.week-bars{display:flex;gap:8px;align-items:flex-end;height:120px;margin:12px 0 4px}.week-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}.week-bar{width:100%;background:#3498DB;border-radius:4px 4px 0 0;display:flex;align-items:flex-start;justify-content:center;padding-top:4px;color:#fff;font-size:10px;font-weight:700}.week-label{font-size:9px;color:#7f8c8d;text-align:center}.subcat-block{background:#F8F9FA;border-left:3px solid #3498DB;padding:8px 14px;margin:10px 0}.subcat-block h4{margin:0 0 6px;color:#1A2935}table.pc td{text-align:left;vertical-align:top}table.pc td.rank{text-align:center}table.pc th{text-align:left}.brandbar{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px}.brandbar .logo{background:#fff;color:#E74C3C;padding:2px 8px;border-radius:4px;font-weight:800;letter-spacing:.5px}.brandbar .sep{opacity:.55}.footer{margin-top:28px;padding-top:12px;border-top:2px solid #E74C3C;font-size:10px;color:#7F8C8D;display:flex;justify-content:space-between;align-items:center}.footer b{color:#E74C3C}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}@media print{thead{display:table-header-group}tr,.kpi,.stat,.subcat-block,.company-card,.card,.week-bars{page-break-inside:avoid}h1,h2,h3,h4{page-break-after:avoid}.hero{page-break-after:avoid}}"""
 
 out = []
-out.append('<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Август 2026 (1–15)</title><style>' + CSS + '</style></head><body>')
-out.append('<div class="hero"><div class="brandbar"><span class="logo">MadeTask</span><span class="sep">×</span><span>Remozo</span><span class="sep">·</span><span>Аналитика поддержки</span></div><h1>Август 2026 (1–15) — детальный анализ</h1><div class="sub">Период: 01.08.2026 – 15.08.2026 · Источники: ChatApp + Flomni · Методология E (несколько ID в одном сообщении = 1 тикет) · с детализацией по подкатегориям</div></div>')
+out.append('<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Август 2026 (1–14)</title><style>' + CSS + '</style></head><body>')
+out.append('<div class="hero"><div class="brandbar"><span class="logo">MadeTask</span><span class="sep">×</span><span>Remozo</span><span class="sep">·</span><span>Аналитика поддержки</span></div><h1>Август 2026 (1–14) — детальный анализ</h1><div class="sub">Период: 01.08.2026 – 14.08.2026 · Источники: ChatApp + Flomni · Методология E (несколько ID в одном сообщении = 1 тикет) · с детализацией по подкатегориям</div></div>')
 out.append(f'<div class="kpis"><div class="kpi"><div class="v">{total}</div><div class="l">Всего тикетов</div></div><div class="kpi"><div class="v">{summary["customer"]}</div><div class="l">От заказчиков</div></div><div class="kpi"><div class="v">{summary["executor"]}</div><div class="l">От исполнителей</div></div><div class="kpi"><div class="v">{summary["dialogs"]}</div><div class="l">Диалогов</div></div></div>')
 
 # 1. Sources & side
@@ -275,7 +277,7 @@ out.append(f'<div class="card"><div class="week-bars">{bars}</div><table style="
 # 3. Companies
 max_c = max((c["total"] for c in companies), default=1) or 1
 crows = "".join(f'<tr><td>{i+1}</td><td>{c["company"]}</td><td>{c["total"]}</td><td>{c["cust"]}</td><td>{c["exec_"]}</td><td><div style="background:linear-gradient(90deg,#3498DB {c["total"]/max_c*100:.0f}%,#ECF0F1 {c["total"]/max_c*100:.0f}%);height:14px;border-radius:3px"></div></td></tr>' for i, c in enumerate(companies))
-out.append(f'<h2>3. Топ-{len(companies)} компаний (1–15 августа 2026)</h2>')
+out.append(f'<h2>3. Топ-{len(companies)} компаний (1–14 августа 2026)</h2>')
 out.append(f'<div class="card"><table><thead><tr><th>#</th><th>Компания</th><th>Всего</th><th>Cust</th><th>Exec</th><th>Объём</th></tr></thead><tbody>{crows}</tbody></table></div>')
 
 # 4. Categories
@@ -293,9 +295,14 @@ fine_by_sub = defaultdict(dict)
 for r in fine:
     fine_by_sub[r["subcategory"]][r["fine_bucket"]] = r
 out.append('<h2>5. Детализация по подкатегориям</h2>')
-out.append('<p style="color:#566573;font-size:12px;margin-bottom:8px">Разбивка тикетов внутри категорий, у которых заданы подкатегории.</p>')
-DISPLAY_ORDER = ["Выплаты и проблемы с ними", "KYC", "Запрос документов",
-                 "Вопросы по работе в сервисе", "Техническая проблема/вопрос"]
+out.append('<p style="color:#566573;font-size:12px;margin-bottom:8px">Разбивка тикетов внутри категорий, у которых заданы подкатегории. Категории, подкатегории и уточняющие бакеты идут по убыванию числа тикетов, показаны топ-7 самых весомых категорий.</p>')
+# Порядок блоков: по убыванию числа тикетов, топ-7.
+TOP_SUBCAT_BLOCKS = 7
+_ordered = sorted(
+    sub_by_cat.items(),
+    key=lambda cr: -cat_total_map.get(cr[0], sum(r["total"] for r in cr[1])),
+)
+DISPLAY_ORDER = [c for c, _ in _ordered[:TOP_SUBCAT_BLOCKS]]
 for cat in DISPLAY_ORDER:
     rows = sub_by_cat.get(cat)
     if not rows:
@@ -311,10 +318,8 @@ for cat in DISPLAY_ORDER:
         fmap = fine_by_sub.get(name)
         if fmap:
             stot = r["total"]
-            for bucket in fs.FINE_ORDER.get(name, []):
-                fr = fmap.get(bucket)
-                if not fr:
-                    continue
+            # Бакеты внутри подкатегории — тоже по убыванию числа тикетов.
+            for bucket, fr in sorted(fmap.items(), key=lambda kv: -kv[1]["total"]):
                 fsh = fr["total"]/stot*100 if stot else 0
                 body += (f'<tr class="fine"><td class="fc">{bucket}</td>'
                          f'<td>{fr["total"]}</td><td>{fr["cust"]}</td>'
@@ -387,7 +392,7 @@ out.append(f'<div class="card"><table class="top15 cc-heatmap"><thead><tr><th>#<
 
 # 9. Deep dive top-15 with subcategories
 out.append(f'<h2>8. Детализация по топ-{len(deep)} компаниям</h2>')
-out.append('<p style="color:#566573;font-size:12px;margin-bottom:8px">По каждой компании — категории и подкатегории (1–15 августа 2026).</p>')
+out.append('<p style="color:#566573;font-size:12px;margin-bottom:8px">По каждой компании — категории и подкатегории (1–14 августа 2026).</p>')
 for c, rows in deep:
     tot = c["total"]
     cs = c["cust"]/tot*100 if tot else 0
@@ -448,7 +453,7 @@ for co, _variants in DETAIL_COMPANIES:
 
 # 10. Potential clients standalone table
 out.append('<h2>10. Потенциальные заказчики</h2>')
-out.append(f'<p style="color:#566573;font-size:12px;margin-bottom:8px">Отдельный список тикетов категории «Потенциальный клиент» (1–15 августа 2026) — система, идентификатор диалога и контекст обращения. Всего: {len(potential)}.</p>')
+out.append(f'<p style="color:#566573;font-size:12px;margin-bottom:8px">Отдельный список тикетов категории «Потенциальный клиент» (1–14 августа 2026) — система, идентификатор диалога и контекст обращения. Всего: {len(potential)}.</p>')
 prows = ""
 for i, r in enumerate(potential, 1):
     sys_label = "ChatApp (Telegram)" if r["source"] == "chatapp" else "Flomni"
@@ -467,8 +472,8 @@ for i, r in enumerate(potential, 1):
     )
 out.append(f'<div class="card"><table class="top15 pc"><thead><tr><th>#</th><th>Диалог</th><th>Система</th><th>Сторона</th><th>Дата</th><th>Компания</th><th>Идентификатор</th><th>Контекст</th></tr></thead><tbody>{prows}</tbody></table></div>')
 
-out.append('<div class="disclaimer">Методология E: 1 тикет = 1 диалог для executor; для customer — число групп email исполнителей (связные компоненты: email из одного сообщения объединяются в одну группу, из разных сообщений — считаются отдельно, мин. 1). Сторона определяется комбинированным правилом: групповой чат либо ≥2 разных email исполнителей → заказчик, иначе исполнитель. Диалог квалифицируется как тикет при наличии хотя бы одного содержательного входящего сообщения либо категории KYC (порядок хранения сообщений не важен). Исключены: «Тест», «Другое», внутренние клиенты, рассылки (обновление API ФНС «citizenship», «Дата принятия задачи»), автоматические фиды (Wallet-транзакции), сервисный шум, кросс-кабинетные дубли Flomni. Подкатегории заданы для «Выплат», «KYC», «Запроса документов», «Вопросов по работе» и «Технической проблемы»; для «Выплат» и «KYC» дана детализация по fine-бакетам (первое совпадение регулярного правила). Бакет «Пополнение/депозит: зачисление на баланс платформы (заказчик)» вынесен в отдельную категорию «Пополнение и зачисление на баланс». Данные за 1–15 августа 2026.</div>')
-out.append('<div class="footer"><span><b>MadeTask</b> × Remozo · Аналитика поддержки</span><span>Отчёт за 1–15 августа 2026 · Методология E · Конфиденциально</span></div>')
+out.append('<div class="disclaimer">Методология E: 1 тикет = 1 диалог для executor; для customer — число групп email исполнителей (связные компоненты: email из одного сообщения объединяются в одну группу, из разных сообщений — считаются отдельно, мин. 1). Сторона определяется комбинированным правилом: групповой чат либо ≥2 разных email исполнителей → заказчик, иначе исполнитель. Диалог квалифицируется как тикет при наличии хотя бы одного содержательного входящего сообщения либо категории KYC (порядок хранения сообщений не важен). Исключены: «Тест», «Другое», внутренние клиенты, рассылки (обновление API ФНС «citizenship», «Дата принятия задачи»), автоматические фиды (Wallet-транзакции), сервисный шум, кросс-кабинетные дубли Flomni. Подкатегории заданы для «Выплат», «KYC», «Запроса документов», «Вопросов по работе» и «Технической проблемы»; для «Выплат» и «KYC» дана детализация по fine-бакетам (первое совпадение регулярного правила). Бакет «Пополнение/депозит: зачисление на баланс платформы (заказчик)» вынесен в отдельную категорию «Пополнение и зачисление на баланс». Данные за 1–14 августа 2026.</div>')
+out.append('<div class="footer"><span><b>MadeTask</b> × Remozo · Аналитика поддержки</span><span>Отчёт за 1–14 августа 2026 · Методология E · Конфиденциально</span></div>')
 out.append('</body></html>')
 
 print("\n".join(out))
