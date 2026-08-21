@@ -433,20 +433,52 @@ CROSS_SIDE_MAP: dict[tuple[str, str], str] = {
 }
 
 
+# Кириллические буквы, визуально неотличимые от латинских. Модель иногда
+# присылает «КYC» с кириллической К, и точное сравнение такую категорию теряло.
+_HOMOGLYPHS = str.maketrans({
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O",
+    "Р": "P", "С": "C", "Т": "T", "У": "Y", "Х": "X",
+    "а": "a", "е": "e", "к": "k", "м": "m", "о": "o", "р": "p", "с": "c",
+    "т": "t", "у": "y", "х": "x",
+})
+
+
+def _fold(name: str) -> str:
+    """Ключ для нестрогого сравнения: гомоглифы к латинице, регистр и края вниз."""
+    return name.translate(_HOMOGLYPHS).casefold().strip()
+
+
+_ALLOWED_FOLDED: dict[str, dict[str, str]] = {
+    "customer": {_fold(c): c for c in CATEGORIES_CUSTOMER},
+    "executor": {_fold(c): c for c in CATEGORIES_EXECUTOR},
+}
+
+_CROSS_SIDE_FOLDED: dict[tuple[str, str], str] = {
+    (_fold(cat), side): target for (cat, side), target in CROSS_SIDE_MAP.items()
+}
+
+
 def _validate_category(side: str, category: str) -> str:
     """Ensure category is in the canonical list for the given side.
 
     Resolution order:
       1. If category already valid for side → return as-is.
-      2. Try CROSS_SIDE_MAP to translate "wrong-side" thematic categories
+      2. Match ignoring case and кириллические гомоглифы.
+      3. Try CROSS_SIDE_MAP to translate "wrong-side" thematic categories
          to their equivalent on the target side.
-      3. Fall back to 'Другое'.
+      4. Fall back to 'Другое'.
     """
     allowed = CATEGORIES_CUSTOMER if side == "customer" else CATEGORIES_EXECUTOR
     if category in allowed:
         return category
 
-    mapped = CROSS_SIDE_MAP.get((category, side))
+    key = _fold(category)
+    hit = _ALLOWED_FOLDED["customer" if side == "customer" else "executor"].get(key)
+    if hit is not None:
+        log.info("Normalized category %r → %r for side=%s", category, hit, side)
+        return hit
+
+    mapped = CROSS_SIDE_MAP.get((category, side)) or _CROSS_SIDE_FOLDED.get((key, side))
     if mapped and mapped in allowed:
         log.info("Cross-side mapped %r → %r for side=%s", category, mapped, side)
         return mapped
@@ -468,6 +500,10 @@ def _validate_subcategory(category: str, subcategory: str | None) -> str | None:
     sub = (subcategory or "").strip()
     if sub in allowed:
         return sub
+    hit = {_fold(s): s for s in allowed}.get(_fold(sub))
+    if hit is not None:
+        log.info("Normalized subcategory %r → %r for category %r", sub, hit, category)
+        return hit
     if sub:
         log.warning("Subcategory %r not valid for category %r — ignoring.", sub, category)
     return None
