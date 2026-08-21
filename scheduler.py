@@ -10,12 +10,15 @@ Jobs:
                           category, «Потенциальный клиент» — одно из значений)
   - company_attribution : every 24 hours at 05:00 UTC  (email extract → Superset resolve
                           → group-name override)
+  - compute_metrics     : every 24 hours at 06:00 UTC  (tickets → fine subcategory →
+                          resolution metrics, скользящее окно последних дней)
 
 The FastAPI webhook server (webhook_flomni.py) runs as a separate process
 via uvicorn (see docker-compose.yml).
 """
 
 import logging
+from datetime import date, timedelta
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -23,6 +26,9 @@ from apscheduler.triggers.cron import CronTrigger
 import ai_analysis
 import chatapp_history
 import company_attribution
+import compute_fine_subcategory
+import compute_resolution_metrics
+import compute_tickets
 import flomni_history
 from config import settings
 from database import create_tables
@@ -40,6 +46,29 @@ log = logging.getLogger(__name__)
 # coalesce lets each daily job still run once when the host wakes, instead of
 # APScheduler silently skipping it.
 _MISFIRE_GRACE = 24 * 3600
+
+# Диалоги догружаются и переразмечаются задним числом, поэтому пересчитываем не
+# только вчерашний день, а окно. Все три шага идемпотентны (UPSERT по dialog_id).
+_METRICS_WINDOW_DAYS = 7
+
+
+def compute_metrics() -> None:
+    """Финальные стадии пайплайна: тикеты, подкатегории, метрики решения."""
+    hi = date.today()
+    lo = hi - timedelta(days=_METRICS_WINDOW_DAYS)
+    lo_s, hi_s = lo.isoformat(), hi.isoformat()
+    log.info("compute_metrics: окно %s..%s", lo_s, hi_s)
+
+    n_tickets = compute_tickets.compute(date_from=lo_s, date_to=hi_s)
+    log.info("compute_metrics: тикетов записано=%d", n_tickets)
+
+    n_sub = compute_fine_subcategory.compute(lo_s, hi_s)
+    log.info("compute_metrics: подкатегорий записано=%d", n_sub)
+
+    n_dialogs, n_incidents = compute_resolution_metrics.compute(lo_s, hi_s)
+    log.info(
+        "compute_metrics: диалогов=%d, инцидентов=%d", n_dialogs, n_incidents
+    )
 
 
 def main() -> None:
@@ -80,6 +109,15 @@ def main() -> None:
         trigger=CronTrigger(hour=5, minute=0),
         id="company_attribution",
         name="Daily company attribution (email→Superset→group-name)",
+        misfire_grace_time=_MISFIRE_GRACE,
+        coalesce=True,
+    )
+
+    scheduler.add_job(
+        compute_metrics,
+        trigger=CronTrigger(hour=6, minute=0),
+        id="compute_metrics",
+        name="Tickets + fine subcategory + resolution metrics",
         misfire_grace_time=_MISFIRE_GRACE,
         coalesce=True,
     )
