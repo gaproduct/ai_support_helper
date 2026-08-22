@@ -47,10 +47,12 @@ CATEGORIES_CUSTOMER: tuple[str, ...] = (
     "Изменения в профиле заказчика/исполнителя",
     "Налоговый статус исполнителя",
     "Потенциальный клиент",
+    "Без запроса",
     "Другое",
 )
 
 CATEGORIES_EXECUTOR: tuple[str, ...] = (
+    "Без запроса",
     "Другое",
     "Выплаты и проблемы с ними",
     "KYC",
@@ -212,7 +214,7 @@ _PROMPT_PREAMBLE = """\
                    «Запрос документов — "копию оригинала контракта с апостилем".»
                    «Техническая проблема/вопрос — "не могу вспомнить пароль".»
                    «KYC — "помогите верифицировать исполнителя".»
-                   «Другое — нет содержательного запроса ("/start").»
+                   «Без запроса — нет содержательного запроса ("/start").»
 
 КАТЕГОРИИ (side=customer):
 {categories_customer}
@@ -516,6 +518,71 @@ def _strip_nul(value: str | None) -> str | None:
     return value.replace("\x00", "")
 
 
+NO_REQUEST_CATEGORY = "Без запроса"
+
+# Реплики, которые клиент пишет, когда обращения по сути нет.
+_TRIVIAL_INBOUND = re.compile(
+    r"^(/start|start|тест|test|ok|окей|ок|да|нет|привет\w*|здравствуйте|"
+    r"добрый\s+(день|вечер|утро)|доброе\s+утро|спасибо\w*|благодарю|"
+    r"thanks?|thank\s+you|hi|hello|пока|до\s+свидания)[\s!.,)…]*$",
+    re.I,
+)
+
+
+# Старые строки хранят всю переписку в text одного элемента: реплики разделены
+# строкой из дефисов, направление дописано в конец реплики как « | inbound».
+# Поле direction у такого элемента пустое.
+_LEGACY_SPLIT = re.compile(r"\n-{5,}\s*\n")
+_LEGACY_MARKER = re.compile(r"\s*\|\s*(inbound|outbound)\s*$", re.I)
+
+
+def _inbound_texts(messages_text: str | None) -> list[str] | None:
+    """Тексты входящих реплик. None — структуру разобрать не удалось."""
+    try:
+        msgs = json.loads(messages_text or "[]")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(msgs, list):
+        return None
+
+    out: list[str] = []
+    for m in msgs:
+        if not isinstance(m, dict):
+            return None
+        text = m.get("text") or ""
+        direction = (m.get("direction") or "").strip().lower()
+        if direction:
+            if direction == "inbound":
+                out.append(text.strip())
+            continue
+        # Направления нет: либо старый склеенный формат, либо мусор.
+        for block in _LEGACY_SPLIT.split(text):
+            marker = _LEGACY_MARKER.search(block)
+            if marker is None:
+                continue
+            if marker.group(1).lower() == "inbound":
+                out.append(block[: marker.start()].strip())
+    return out
+
+
+def _has_substantive_inbound(messages_text: str | None) -> bool:
+    """Написал ли клиент хоть что-то по существу.
+
+    Пустое касание — это диалог, где входящих сообщений нет вовсе (клиенту
+    ответил только бот или оператор) либо все они тривиальные: «/start»,
+    «привет», «спасибо». Обращения не было, разбирать нечего.
+
+    Картинки и файлы приходят с ссылкой в тексте, поэтому по тексту их видно.
+    """
+    texts = _inbound_texts(messages_text)
+    if texts is None:
+        return True  # не разобрали структуру — считаем содержательным
+    for text in texts:
+        if len(text) > 3 and not _TRIVIAL_INBOUND.match(text):
+            return True
+    return False
+
+
 def run() -> None:
     log.info("Starting AI analysis job.")
 
@@ -552,6 +619,11 @@ def run() -> None:
 
         side = _resolve_side(is_group, dialog.messages_text)
         category = _validate_category(side, (result.get("category") or "").strip())
+        if not _has_substantive_inbound(dialog.messages_text):
+            if category != NO_REQUEST_CATEGORY:
+                log.info("Dialog %d: нет содержательного inbound, %r → %r",
+                         dialog.id, category, NO_REQUEST_CATEGORY)
+            category = NO_REQUEST_CATEGORY
         subcategory = _validate_subcategory(category, result.get("subcategory"))
 
         with get_session() as db:
