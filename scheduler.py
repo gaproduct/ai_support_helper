@@ -8,6 +8,9 @@ Jobs:
   - ai_analysis         : every 24 hours at 04:00 UTC  (унифицированная
                           классификация по методологии май-отчёта: side +
                           category, «Потенциальный клиент» — одно из значений)
+  - dialog_index        : every 24 hours at 04:45 UTC  (векторы и выжимки
+                          «чем закончилось» для кабинета оператора, сразу после
+                          ai_analysis: индексируются только разобранные диалоги)
   - company_attribution : every 24 hours at 05:00 UTC  (email extract → Superset resolve
                           → group-name override)
   - compute_metrics     : every 24 hours at 06:00 UTC  (tickets → fine subcategory →
@@ -29,6 +32,7 @@ import company_attribution
 import compute_fine_subcategory
 import compute_resolution_metrics
 import compute_tickets
+import dialog_index
 import flomni_history
 from config import settings
 from database import create_tables
@@ -100,6 +104,15 @@ def main() -> None:
         trigger=CronTrigger(hour=4, minute=0),
         id="ai_analysis",
         name="AI analysis of dialogs",
+        misfire_grace_time=_MISFIRE_GRACE,
+        coalesce=True,
+    )
+
+    scheduler.add_job(
+        dialog_index.run,
+        trigger=CronTrigger(hour=4, minute=45),
+        id="dialog_index",
+        name="Dialog index for the operator cabinet (embeddings + outcomes)",
         misfire_grace_time=_MISFIRE_GRACE,
         coalesce=True,
     )

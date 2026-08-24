@@ -37,3 +37,8 @@ def chat_ui() -> str:
 @router.get("/slack", response_class=HTMLResponse)
 def slack_ui() -> str:
     return _read("slack.html")
+
+
+@router.get("/operator", response_class=HTMLResponse)
+def operator_ui() -> str:
+    return _read("operator.html")

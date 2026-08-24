@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Карточка обращения</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #f5f5f5; padding: 28px 16px 60px; color: #1a1a1a; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 19px; font-weight: 600; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+          padding: 18px 22px; margin-bottom: 14px; }
+  h2 { font-size: 12px; font-weight: 600; color: #9ca3af; text-transform: uppercase;
+       letter-spacing: .5px; margin-bottom: 12px; }
+  .quote { font-size: 14px; line-height: 1.6; white-space: pre-wrap;
+           border-left: 3px solid #e5e7eb; padding-left: 12px; color: #374151; }
+  .tags { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { font-size: 12px; background: #eef2ff; color: #4f46e5;
+         border-radius: 999px; padding: 3px 10px; }
+  .tag.grey { background: #f3f4f6; color: #6b7280; }
+  .item { border-top: 1px solid #f0f0f0; padding: 14px 0; }
+  .item:first-of-type { border-top: none; padding-top: 0; }
+  .item-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+               margin-bottom: 6px; }
+  .score { font-size: 11px; font-weight: 700; color: #059669;
+           background: #ecfdf5; border-radius: 4px; padding: 2px 6px; }
+  .when { font-size: 12px; color: #9ca3af; }
+  .cat { font-size: 12px; color: #6b7280; }
+  .outcome { font-size: 14px; line-height: 1.55; color: #111827; }
+  .summary { font-size: 13px; line-height: 1.5; color: #6b7280; margin-top: 4px; }
+  details { margin-top: 8px; }
+  summary { font-size: 12px; color: #4f46e5; cursor: pointer; }
+  .reply { font-size: 13px; line-height: 1.5; color: #374151; background: #fafafa;
+           border-radius: 6px; padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: #9ca3af; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .4px; padding: 0 10px 8px 0; }
+  td { padding: 7px 10px 7px 0; border-top: 1px solid #f0f0f0; color: #374151;
+       vertical-align: top; }
+  td.num { text-align: right; white-space: nowrap; }
+  .muted { color: #9ca3af; font-size: 13px; }
+  .warn { background: #fef3c7; color: #92400e; border-radius: 8px;
+          padding: 10px 14px; font-size: 13px; }
+  .err { background: #fee2e2; color: #dc2626; border-radius: 8px;
+         padding: 12px 16px; font-size: 14px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><div class="muted">Собираем карточку...</div></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function money(v, cur) {
+  if (v == null) return '—';
+  return Math.round(v).toLocaleString('ru-RU') + (cur ? ' ' + esc(cur) : '');
+}
+
+function day(s) {
+  return s ? esc(String(s).slice(0, 10)) : '—';
+}
+
+function card(title, inner) {
+  return `<div class="card"><h2>${title}</h2>${inner}</div>`;
+}
+
+function ticketBlock(t) {
+  const tags = [];
+  if (t.side) tags.push(`<span class="tag">${t.side === 'executor' ? 'исполнитель' : 'заказчик'}</span>`);
+  if (t.category) tags.push(`<span class="tag">${esc(t.category)}</span>`);
+  tags.push(`<span class="tag grey">${esc(t.source)}</span>`);
+  return card('Обращение',
+    `<div class="quote">${esc(t.text) || '<span class="muted">текста нет</span>'}</div>
+     <div class="tags">${tags.join('')}</div>`);
+}
+
+function similarBlock(items) {
+  if (!items.length) {
+    return card('Похожие обращения',
+      '<div class="muted">Похожих обращений не нашлось.</div>');
+  }
+  const rows = items.map(s => {
+    const replies = (s.support_replies || []).map(
+      r => `<div class="reply">${esc(r)}</div>`).join('');
+    return `<div class="item">
+      <div class="item-head">
+        <span class="score">${s.score}</span>
+        <span class="when">${day(s.date)}</span>
+        <span class="cat">${esc(s.category)}${s.subcategory ? ' / ' + esc(s.subcategory) : ''}</span>
+      </div>
+      <div class="outcome">${esc(s.outcome) || '<span class="muted">итог не записан</span>'}</div>
+      <div class="summary">${esc(s.summary)}</div>
+      ${replies ? `<details><summary>Что писала поддержка (${(s.support_replies || []).length})</summary>${replies}</details>` : ''}
+    </div>`;
+  }).join('');
+  return card(`Похожие обращения (${items.length})`, rows);
+}
+
+function executorBlock(e) {
+  if (!e.email) {
+    return card('Исполнитель',
+      `<div class="warn">Исполнителя опознать не удалось: ${esc(e.resolved_by)}.
+       Задачи, выплаты и заказчики не показаны.</div>`);
+  }
+  const p = e.profile || {};
+  const head = `<div class="tags">
+    <span class="tag">${esc(p.name || e.email)}</span>
+    <span class="tag grey">${esc(e.email)}</span>
+    ${p.tax_status ? `<span class="tag grey">${esc(p.tax_status)}</span>` : ''}
+    ${p.kyc_level ? `<span class="tag grey">KYC ${esc(p.kyc_level)}</span>` : ''}
+    ${p.country ? `<span class="tag grey">${esc(p.country)}</span>` : ''}
+  </div>`;
+
+  if (e.error) {
+    return card('Исполнитель', head + `<div class="warn" style="margin-top:12px">${esc(e.error)}</div>`);
+  }
+
+  const tasks = (e.tasks || []).map(t => `<tr>
+      <td>${day(t.closed_at || t.created_at)}</td>
+      <td>${esc(t.name)}</td>
+      <td>${esc(t.company_name)}</td>
+      <td>${esc(t.status)}</td>
+      <td class="num">${money(t.cost, t.currency)}</td>
+    </tr>`).join('');
+
+  const payouts = (e.payouts || []).map(p2 => `<tr>
+      <td>${day(p2.completed_at || p2.created_at)}</td>
+      <td>${esc(p2.status)}</td>
+      <td>${esc(p2.payout_type)}</td>
+      <td>${esc(p2.error_code || p2.cancel_reason || '')}</td>
+      <td class="num">${money(p2.amount, p2.currency)}</td>
+    </tr>`).join('');
+
+  const customers = (e.customers || []).map(c => `<tr>
+      <td>${esc(c.company_name)}</td>
+      <td class="num">${c.tasks}</td>
+      <td class="num">${money(c.rub, '₽')}</td>
+      <td>${day(c.last_task)}</td>
+    </tr>`).join('');
+
+  const table = (title, head2, body) => body
+    ? `<h2 style="margin-top:18px">${title}</h2>
+       <table><thead><tr>${head2}</tr></thead><tbody>${body}</tbody></table>`
+    : `<h2 style="margin-top:18px">${title}</h2><div class="muted">Пусто.</div>`;
+
+  return card('Исполнитель', head
+    + table('Последние задачи',
+        '<th>Закрыта</th><th>Задача</th><th>Заказчик</th><th>Статус</th><th class="num">Сумма</th>', tasks)
+    + table('Последние выплаты',
+        '<th>Дата</th><th>Статус</th><th>Способ</th><th>Причина отказа</th><th class="num">Сумма</th>', payouts)
+    + table('Заказчики',
+        '<th>Компания</th><th class="num">Задач</th><th class="num">Сумма</th><th>Последняя</th>', customers));
+}
+
+function historyBlock(items) {
+  if (!items.length) {
+    return card('Прошлые обращения',
+      '<div class="muted">В поддержку раньше не писал.</div>');
+  }
+  const rows = items.map(h => `<div class="item">
+      <div class="item-head">
+        <span class="when">${day(h.date)}</span>
+        <span class="cat">${esc(h.category)}${h.subcategory ? ' / ' + esc(h.subcategory) : ''}</span>
+      </div>
+      <div class="outcome">${esc(h.outcome) || '<span class="muted">итог не записан</span>'}</div>
+      <div class="summary">${esc(h.summary)}</div>
+    </div>`).join('');
+  return card(`Прошлые обращения (${items.length})`, rows);
+}
+
+async function load() {
+  const root = document.getElementById('root');
+  const id = params.get('id');
+  if (!id) {
+    root.innerHTML = '<div class="err">В ссылке нет id обращения.</div>';
+    return;
+  }
+  try {
+    const resp = await fetch(`/api/operator/card?id=${encodeURIComponent(id)}`
+      + `&token=${encodeURIComponent(params.get('token') || '')}`);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      root.innerHTML = `<div class="err">${esc(body.detail || resp.statusText)}</div>`;
+      return;
+    }
+    const d = await resp.json();
+    root.innerHTML =
+      `<h1>Карточка обращения #${esc(d.ticket.incoming_id)}</h1>
+       <div class="sub">${esc(d.ticket.name || d.ticket.client_id)} · ${esc(d.ticket.started_at || '')}</div>`
+      + ticketBlock(d.ticket)
+      + similarBlock(d.similar)
+      + executorBlock(d.executor)
+      + historyBlock(d.history);
+  } catch (err) {
+    root.innerHTML = `<div class="err">Не удалось загрузить карточку: ${esc(err)}</div>`;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

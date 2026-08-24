@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -98,6 +99,25 @@ def get_thread_replies(channel: str, thread_ts: str, limit: int = 50) -> list[di
     except Exception as exc:
         log.error("Slack conversations.replies exception: %s", exc)
     return []
+
+
+def operator_card_button(incoming_id: int) -> dict | None:
+    """Кнопка «Карточка» на корневом сообщении треда.
+
+    Ведёт прямо в браузер, обработчик в slack_interactions не нужен. Токен
+    зашит в ссылку: пост живёт во внутреннем канале. Если база не настроена,
+    кнопки просто нет.
+    """
+    if not settings.operator_base_url:
+        return None
+    url = (f"{settings.operator_base_url.rstrip('/')}/operator"
+           f"?id={incoming_id}&token={quote(settings.operator_token)}")
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "🗂 Карточка"},
+        "action_id": "open_operator_card",
+        "url": url,
+    }
 
 
 def build_permalink(channel: str, ts: str) -> str | None:

@@ -32,7 +32,7 @@ import auto_response
 from ai_response import post_ai_response
 from config import settings
 from database import IncomingMessage, get_session
-from slack_client import post_slack
+from slack_client import operator_card_button, post_slack
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +149,17 @@ def _build_root_blocks(
     client_label: str, message_text: str, incoming_id: int
 ) -> list[dict]:
     """Block Kit для корневого сообщения треда: текст + кнопки действий."""
+    buttons = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "📜 История диалога"},
+            "action_id": "show_history",
+            "value": str(incoming_id),
+        },
+    ]
+    card = operator_card_button(incoming_id)
+    if card:
+        buttons.append(card)
     return [
         {
             "type": "section",
@@ -157,17 +168,7 @@ def _build_root_blocks(
                 "text": f"{SLACK_TAG} | 👤 *Новое обращение* | {client_label}\n\n> {message_text}",
             },
         },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "📜 История диалога"},
-                    "action_id": "show_history",
-                    "value": str(incoming_id),
-                },
-            ],
-        },
+        {"type": "actions", "elements": buttons},
     ]
 
 

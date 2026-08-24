@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 import auto_response
 from ai_response import post_ai_response
 from database import IncomingMessage, get_session
-from slack_client import post_slack
+from slack_client import operator_card_button, post_slack
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +98,17 @@ def _parse_message(item: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]
 
 def _build_root_blocks(client_label: str, message_text: str, incoming_id: int) -> list[dict]:
     """Block Kit для корневого сообщения треда — формат как у Flomni, тэг другой."""
+    buttons = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "📜 История диалога"},
+            "action_id": "show_history",
+            "value": str(incoming_id),
+        },
+    ]
+    card = operator_card_button(incoming_id)
+    if card:
+        buttons.append(card)
     return [
         {
             "type": "section",
@@ -106,17 +117,7 @@ def _build_root_blocks(client_label: str, message_text: str, incoming_id: int) -
                 "text": f"{SLACK_TAG} | 👤 *Новое обращение* | {client_label}\n\n> {message_text}",
             },
         },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "📜 История диалога"},
-                    "action_id": "show_history",
-                    "value": str(incoming_id),
-                },
-            ],
-        },
+        {"type": "actions", "elements": buttons},
     ]
 
 

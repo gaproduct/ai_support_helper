@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from api.chat import router as chat_router
 from api.db_query import router as db_query_router
 from api.kb import router as kb_router
+from api.operator import router as operator_router
 from api.search import router as search_router
 from api.train import router as train_router
 from config import settings
@@ -56,6 +57,7 @@ app.include_router(chat_router)
 app.include_router(kb_router)
 app.include_router(train_router)
 app.include_router(db_query_router)
+app.include_router(operator_router)
 app.include_router(ui_router)
 
 
