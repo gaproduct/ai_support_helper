@@ -70,6 +70,15 @@ function day(s) {
   return s ? esc(String(s).slice(0, 10)) : '—';
 }
 
+// Время обращения приходит в UTC, показываем в часовом поясе оператора.
+function when(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  return isNaN(d.getTime())
+    ? esc(String(s).slice(0, 16).replace('T', ' '))
+    : esc(d.toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }));
+}
+
 function card(title, inner) {
   return `<div class="card"><h2>${title}</h2>${inner}</div>`;
 }
@@ -196,7 +205,7 @@ async function load() {
     const d = await resp.json();
     root.innerHTML =
       `<h1>Карточка обращения #${esc(d.ticket.incoming_id)}</h1>
-       <div class="sub">${esc(d.ticket.name || d.ticket.client_id)} · ${esc(d.ticket.started_at || '')}</div>`
+       <div class="sub">${esc(d.ticket.name || d.ticket.client_id)} · ${when(d.ticket.started_at)}</div>`
       + ticketBlock(d.ticket)
       + similarBlock(d.similar)
       + executorBlock(d.executor)
