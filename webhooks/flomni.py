@@ -21,10 +21,11 @@ import hashlib
 import hmac
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import auto_response
@@ -51,17 +52,97 @@ def _verify_signature(body: bytes, signature: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
 
-def _normalize_channel_name(name: str) -> str:
-    """Normalize a channel/chat name for TG-duplicate detection.
+# ── Парные получатели ────────────────────────────────────────────────────────
+#
+# Один TG-чат подключён к Flomni двумя каналами. Приходят два вебхука с разными
+# `receiver` и одинаковым текстом, разница около 150 мс. Раньше близнецов искали
+# по названию чата, но названия у каналов разные: один отдаёт имя группы
+# («Дзен&MadeTask»), второй имя человека («Dmitriy»). Совпадает только текст.
+#
+# Близнеца не выбрасываем: непонятно, чей канал записал ответы поддержки, а
+# в истории второго встречаются сообщения клиента, которых нет у первого.
+# Вместо этого делим один тред: запись заводим, в Slack и в автоответчик не идём.
+# Кто из пары канонический, разбирает flomni_twins.py по ночным данным.
 
-    Lowercases and reduces the name to a sorted set of alnum tokens (Latin/Cyrillic/digits).
-    Punctuation, emojis, parentheses, ampersands etc. are stripped. Token order
-    is normalized so that "A & B (X)" and "B X & A" produce the same key.
+_TWIN_WINDOW_SECONDS = 5.0
+
+# Короткие реплики («Добрый день») совпадают у посторонних клиентов.
+_TWIN_MIN_TEXT_LEN = 20
+
+
+def _parse_iso(value: str | None) -> float | None:
+    try:
+        return datetime.fromisoformat((value or "").replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _open_record(db: Session, client_id: str) -> IncomingMessage | None:
+    return (
+        db.query(IncomingMessage)
+        .filter(
+            IncomingMessage.source == "flomni",
+            IncomingMessage.client_id == client_id,
+            IncomingMessage.done.is_(False),
+        )
+        .first()
+    )
+
+
+def _text_twin(
+    db: Session, client_id: str, message_text: str, message_time: str
+) -> IncomingMessage | None:
+    """Открытая запись другого получателя с тем же текстом в те же секунды."""
+    body = (message_text or "").strip()
+    at = _parse_iso(message_time)
+    if at is None or len(body) < _TWIN_MIN_TEXT_LEN:
+        return None
+
+    candidates = (
+        db.query(IncomingMessage)
+        .filter(
+            IncomingMessage.source == "flomni",
+            IncomingMessage.done.is_(False),
+            IncomingMessage.client_id != client_id,
+        )
+        .all()
+    )
+    for candidate in candidates:
+        other = _parse_iso(candidate.last_message_at)
+        if other is None or abs(at - other) > _TWIN_WINDOW_SECONDS:
+            continue
+        if (candidate.first_message_text or "").strip().endswith(body):
+            return candidate
+    return None
+
+
+def _resolve_twin(
+    db: Session, client_id: str, message_text: str, message_time: str
+) -> tuple[str | None, str | None]:
+    """Определяет, второй ли это канал уже известного чата.
+
+    Возвращает (client_id близнеца, ts общего треда). Оба None, если чат свой.
+
+    Сначала смотрим реестр: там канонический получатель выбран по ночным данным,
+    и порядок доставки вебхуков уже не важен. Если пары в реестре нет, ищем
+    открытую запись с тем же текстом в те же секунды. Такой поиск зависит от
+    того, кто пришёл первым, зато ловит ещё не разобранные пары.
     """
-    if not name:
-        return ""
-    tokens = re.findall(r"[A-Za-zА-Яа-яЁё0-9]+", name.lower())
-    return " ".join(sorted(tokens))
+    row = db.execute(
+        text("SELECT canonical_client_id FROM flomni_twin_receivers "
+             "WHERE shadow_client_id = :s"),
+        {"s": client_id},
+    ).first()
+    if row:
+        canonical = _open_record(db, row[0])
+        return row[0], canonical.slack_thread_ts if canonical else None
+
+    twin = _text_twin(db, client_id, message_text, message_time)
+    if twin is None:
+        return None, None
+    # Близнец сам мог оказаться близнецом: цепляемся к корню, чтобы не строить
+    # цепочку A -> B -> C и не потерять исходный тред.
+    return twin.twin_of or twin.client_id, twin.slack_thread_ts
 
 
 def _build_root_blocks(
@@ -131,9 +212,8 @@ def _parse_event(event: dict[str, Any]) -> dict[str, Any]:
         "client_id": str(event.get("receiver", "")),
         # profile.name — название группового чата («КЛИЕНТ × MT»), по нему потом
         # определяется компания. metaData даёт имя человека: годится как подпись
-        # в Slack, но компанию из него не вытащить. Отсюда флаг is_group_name.
+        # в Slack, но компанию из него не вытащить. Поэтому profile.name первый.
         "name": profile_name or meta_name,
-        "is_group_name": bool(profile_name),
         "client_email": meta_email,
         "message_text": first.get("msg", {}).get("text", "") or "",
         "message_time": first.get("time", "") or "",
@@ -143,9 +223,14 @@ def _parse_event(event: dict[str, Any]) -> dict[str, Any]:
 def _create_new_incoming_message(
     db: Session,
     parsed: dict[str, Any],
+    twin_of: str | None = None,
+    twin_thread_ts: str | None = None,
 ) -> tuple[str, str, bool, str | None]:
     """
     Создаёт новый IncomingMessage + новый Slack-тред для клиента.
+
+    Если задан `twin_of`, это второй канал того же TG-чата. Запись заводим, чтобы
+    забрать историю, но тред у неё общий с близнецом и в Slack мы не пишем.
     """
     client_id = parsed["client_id"]
     name = parsed["name"]
@@ -153,7 +238,7 @@ def _create_new_incoming_message(
     message_time = parsed["message_time"]
 
     accumulated = message_text
-    should_trigger = not auto_response._is_greeting(message_text)
+    should_trigger = twin_of is None and not auto_response._is_greeting(message_text)
 
     client_label = name if name else client_id
 
@@ -169,9 +254,19 @@ def _create_new_incoming_message(
         done=False,
         auto_response_sent=should_trigger,
         slack_thread_ts=None,
+        twin_of=twin_of,
     )
     db.add(record)
     db.flush()  # получаем record.id, но без commit — thread_ts проставим ниже
+
+    if twin_of is not None:
+        record.slack_thread_ts = twin_thread_ts
+        db.commit()
+        log.info(
+            "TG-twin: created silent record client=%s twin=%s name=%r",
+            client_id, twin_of, name,
+        )
+        return "", "", False, None
 
     blocks = _build_root_blocks(client_label, message_text, record.id)
     thread_ts = post_slack(
@@ -226,47 +321,6 @@ def _upsert_incoming_message(
         .first()
     )
 
-    # TG-duplicate fallback: when Flomni delivers the same TG group via two
-    # different connectors (different receiver IDs but the same channel name),
-    # route the second webhook to the existing record instead of creating a twin.
-    # Работает только по названиям групповых чатов. Имя человека из metaData сюда
-    # не годится: тёзки из разных компаний склеились бы в одну запись.
-    if not existing and parsed["is_group_name"]:
-        normalized = _normalize_channel_name(name)
-        if normalized:
-            recent_cutoff = datetime.utcnow() - timedelta(hours=24)
-            candidates = (
-                db.query(IncomingMessage)
-                .filter(
-                    IncomingMessage.source == "flomni",
-                    IncomingMessage.done.is_(False),
-                    IncomingMessage.client_id != client_id,
-                    IncomingMessage.created_at >= recent_cutoff,
-                )
-                .all()
-            )
-            twin = next(
-                (
-                    c for c in candidates
-                    if _normalize_channel_name(c.name or "") == normalized
-                ),
-                None,
-            )
-            if twin is not None:
-                accumulated_tail = (twin.first_message_text or "").strip()
-                new_text = (message_text or "").strip()
-                if new_text and accumulated_tail.endswith(new_text):
-                    log.info(
-                        "Skipping TG-twin duplicate (same text) client=%s twin=%s name=%r",
-                        client_id, twin.client_id, name,
-                    )
-                    return "", "", False, None
-                log.info(
-                    "Routing TG-twin message to existing record: client=%s -> twin_client=%s name=%r",
-                    client_id, twin.client_id, name,
-                )
-                existing = twin
-
     if existing:
         # Topic-boundary detection temporarily disabled — собираем весь диалог
         # по clientID в один Slack-тред без попыток разделить на отдельные вопросы.
@@ -278,6 +332,14 @@ def _upsert_incoming_message(
             existing.client_email = parsed["client_email"]
         if not existing.name and name:
             existing.name = name
+
+        if existing.twin_of:
+            db.commit()
+            log.info(
+                "TG-twin: silent append client=%s twin=%s",
+                client_id, existing.twin_of,
+            )
+            return "", "", False, None
 
         post_slack(
             f"{SLACK_TAG} | 💬 *Клиент:* {message_text}",
@@ -299,7 +361,9 @@ def _upsert_incoming_message(
         # Pass only the new message_text to AI analysis
         return client_id, message_text, should_trigger, existing.slack_thread_ts
 
-    return _create_new_incoming_message(db, parsed)
+    # Записи ещё нет. Проверяем, не второй ли это канал уже открытого чата.
+    twin_of, twin_thread_ts = _resolve_twin(db, client_id, message_text, message_time)
+    return _create_new_incoming_message(db, parsed, twin_of, twin_thread_ts)
 
 
 def handle_flomni_payload(payload: Any) -> dict[str, str]:

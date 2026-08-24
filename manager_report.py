@@ -108,6 +108,10 @@ def main():
             FROM dialogs d
             WHERE d.messages_json IS NOT NULL
               AND d.messages_json <> '' AND d.messages_json <> '[]'
+              -- Теневые дубли: тот же TG-чат, пришедший вторым каналом Flomni.
+              -- Без этого фильтра часть обращений считается дважды.
+              AND NOT EXISTS (SELECT 1 FROM shadow_duplicate_dialogs s
+                              WHERE s.dialog_id = d.id)
               AND EXISTS (SELECT 1 FROM tickets t WHERE t.dialog_id = d.id
                           AND t.dialog_date >= :df AND t.dialog_date < :dt
                           AND t.methodology = 'E')

@@ -56,6 +56,9 @@ class IncomingMessage(Base):
     # ChatApp-only routing (NULL для Flomni)
     license_id = Column(String(64))
     messenger_type = Column(String(32))
+    # Тот же TG-чат, пришедший вторым каналом Flomni. Хранит client_id близнеца,
+    # с которым у записи общий тред. Историю по ней тянем, в Slack не постим.
+    twin_of = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
