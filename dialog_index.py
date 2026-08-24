@@ -108,7 +108,12 @@ def _load_existing(table: str) -> dict[int, str]:
 
 
 def _iter_dialogs(limit: int | None):
-    """Диалоги с AI-разбором, пачками, без теневых дублей."""
+    """Диалоги с AI-разбором, пачками, без теневых дублей.
+
+    Разбор проверяем через EXISTS, а не джойном: у диалога бывает несколько
+    строк в analysis_results, и на джойне он выдавался бы дважды. Тогда мы бы
+    столько же раз сходили в OpenAI за одним и тем же вектором и выжимкой.
+    """
     last_id = 0
     seen = 0
     while True:
@@ -116,10 +121,11 @@ def _iter_dialogs(limit: int | None):
             rows = db.execute(text("""
                 SELECT d.id, d.messages_json
                 FROM dialogs d
-                JOIN analysis_results a ON a.dialog_id = d.id
                 WHERE d.id > :last
                   AND d.messages_json IS NOT NULL
                   AND d.messages_json NOT IN ('', '[]')
+                  AND EXISTS (SELECT 1 FROM analysis_results a
+                              WHERE a.dialog_id = d.id)
                   AND NOT EXISTS (SELECT 1 FROM shadow_duplicate_dialogs s
                                   WHERE s.dialog_id = d.id)
                 ORDER BY d.id
