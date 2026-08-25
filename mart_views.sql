@@ -148,3 +148,67 @@ SELECT m.dialog_id,
 
 COMMENT ON VIEW mart_incidents IS
 'Инциденты внутри тикетов методологии E. Гранулярность обращение, не диалог. Скорость первого ответа и решения считать здесь.';
+
+
+-- Витрина 3: длинный ряд с января. Гранулярность ДИАЛОГ, не тикет.
+--
+-- Январь-май живёт по другой методологии: тикетов там не считали, метрик
+-- скорости нет, таксономия была шире на 13 категорий. Свести всё это к тикетам
+-- нельзя, а к диалогам и категориям можно. Отсюда отдельная витрина: она
+-- отвечает на вопрос «сколько обращений и о чём», и только на него.
+--
+-- Складывать её с mart_tickets нельзя. Там тикеты, здесь диалоги.
+CREATE OR REPLACE VIEW mart_dialogs_history AS
+WITH alias AS (
+    SELECT DISTINCT ON (lower(btrim(alias)))
+           lower(btrim(alias)) AS key, canonical
+      FROM company_aliases
+     ORDER BY lower(btrim(alias)), canonical
+),
+archive AS (
+    SELECT a.dialog_date,
+           a.source,
+           a.may_side AS side,
+           -- Старые категории сводим к нынешним. Разбор по текстам обращений:
+           -- SEPA/SWIFT и заблокированные реквизиты это проблемы с выплатой,
+           -- НДФЛ это вопрос о налоговом статусе, EOR это вопрос о сервисе,
+           -- «закрывашки в ЭДО» это запрос документов.
+           CASE a.may_category
+                WHEN 'Проблема KYC'                     THEN 'KYC'
+                WHEN 'Дублирование KYC'                 THEN 'KYC'
+                WHEN 'Запрос документов не бух'         THEN 'Запрос документов'
+                WHEN 'Вопросы по числам отправки закрывашек в эдо заказчику/поторопить бухгалтерию'
+                                                        THEN 'Запрос документов'
+                WHEN 'SEPA/SWIFT'                       THEN 'Выплаты и проблемы с ними'
+                WHEN 'Реквизиты заблокированы'          THEN 'Выплаты и проблемы с ними'
+                WHEN 'НДФЛ'                             THEN 'Налоговый статус исполнителя'
+                WHEN 'ИП РФ'                            THEN 'Статус ИП РФ/Самозанятого'
+                WHEN 'EOR'                              THEN 'Вопросы по работе в сервисе'
+                WHEN 'Предложение (маркетинг, сотрудничество, банкинг, итд)'
+                                                        THEN 'Потенциальный клиент'
+                WHEN 'Функциональность сервиса и возможности выплат'
+                                                        THEN 'Функциональность сервиса и возможность выплат'
+                ELSE a.may_category
+           END AS category,
+           NULLIF(COALESCE(al.canonical, a.company), 'Unknown') AS company,
+           a.chat_name,
+           a.ai_summary AS summary,
+           'jan_may'::text AS data_era
+      FROM analytics_archive_jan_may a
+      LEFT JOIN alias al ON al.key = lower(btrim(a.company))
+     -- Окна выгрузок unified и live пересекаются с 24 по 30 апреля, но строки
+     -- не дублируются: unified это bitrix и chatapp, live это flomni.
+     -- Совпадающих чатов за эту неделю ноль, поэтому берём обе целиком.
+),
+current_era AS (
+    SELECT dialog_date, source, side, category, company, chat_name, summary,
+           'jun_aug'::text AS data_era
+      FROM mart_ticket_base
+)
+SELECT * FROM archive
+ WHERE category NOT IN ('Тест', 'Другое', 'Рассылка', 'Дубль', 'Без запроса')
+UNION ALL
+SELECT * FROM current_era;
+
+COMMENT ON VIEW mart_dialogs_history IS
+'Длинный ряд с января по август на уровне диалогов. Категории января-мая сведены к нынешним. Тикетов и метрик скорости здесь нет: до июня их не считали. С mart_tickets не складывается.';
