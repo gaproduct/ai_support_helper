@@ -20,6 +20,7 @@ from datetime import date
 from sqlalchemy import text
 
 from database import get_session
+import repeat_contacts as rc
 import resolution_metrics as rm
 from manager_report import build_ts_map, short
 
@@ -537,8 +538,24 @@ def build(months: list[dict]) -> str:
              "</tr></thead><tbody></tbody></table>")
     o.append("</div>")
 
+    # ── 5. Повторные обращения ──
+    o.append('<h2><span class="num">5</span>Повторные обращения</h2>')
+    o.append('<p class="lead">Обращение закрыли, а человек вернулся с тем же вопросом. Этого не '
+             'видят ни скорость первого ответа, ни отметка «решено»: быстрый ответ, который не '
+             'помог, выглядит там как успех. Метрика показывает категории, где ломается процесс, '
+             'а не человек, поэтому счёт идёт по темам, а не по менеджерам.</p>')
+    incidents = rc.load_incidents()
+    trend = []
+    for m in months:
+        y, mo = (int(x) for x in m["key"].split("-"))
+        r = rc.compute(date(y, mo, 1), m["last_day"], incidents=incidents)
+        trend.append({"label": m["label"], "pct": r["pct"], "closed": r["closed"]})
+    y0, mo0 = (int(x) for x in months[0]["key"].split("-"))
+    o.append(rc.render_html(
+        rc.compute(date(y0, mo0, 1), last["last_day"], incidents=incidents), trend))
+
     # ── оговорки ──
-    o.append('<h2><span class="num">5</span>Как читать эти цифры</h2>')
+    o.append('<h2><span class="num">6</span>Как читать эти цифры</h2>')
     o.append('<div class="card"><div class="note" style="margin-top:0">')
     o.append("<b>Ограничения, без которых выводы будут неверными.</b><ul>")
     jun = months[0]
