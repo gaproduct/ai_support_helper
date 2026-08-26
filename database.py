@@ -103,6 +103,15 @@ class Dialog(Base):
     # resolve_dialog_companies.py. Внутренние компании (Apzone/Rosburn/Efficient)
     # отфильтрованы blacklist'ом.
     company = Column(String(512), index=True)
+    # Ключ компании в Superset. Название компании нестабильно: у 469 компаний из
+    # 886 несколько юрлиц, плюс мы сами переписывали его токеном из имени чата.
+    # Аналитика группирует по id, поэтому сшиваемся по нему, а название берём из
+    # зеркала superset_companies. Заполняется resolve_dialog_companies.py.
+    company_id = Column(BigInteger, index=True)
+    # Платформа Superset: RU | COM | Remozo. Нумерация компаний в каждой своя и
+    # начинается с единицы, поэтому company_id без платформы склеит разные
+    # компании. Ключ всегда пара.
+    company_platform = Column(String(32), index=True)
 
     analysis = relationship("AnalysisResult", back_populates="dialog", uselist=False)
 

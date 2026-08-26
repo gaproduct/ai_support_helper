@@ -49,7 +49,12 @@ INTERNAL_PATTERNS = (
 )
 _internal_re = re.compile("|".join(INTERNAL_PATTERNS), re.IGNORECASE)
 
-SPLIT_RE = re.compile(r"[&+|/\\,]| +[-xXхХ] +|[_]", re.UNICODE)
+SPLIT_RE = re.compile(r"[&+|/\\,×]| +[-xXхХ] +|[_]", re.UNICODE)
+
+# Разделитель, оставшийся на краю строки. «Т-банк х MT» после удаления
+# внутреннего маркера превращается в «Т-банк х»: пробела справа больше нет,
+# поэтому SPLIT_RE такой разделитель уже не видит и он прилипает к названию.
+EDGE_SEP_RE = re.compile(r"^[-xXхХ×]\s+|\s+[-xXхХ×]$", re.UNICODE)
 
 # Слова, которые удаляются ПОСЛЕ internal-маркеров, но ДО split.
 # Это «служебные» слова вокруг внутренних брендов (юр.оформление и т.п.),
@@ -92,6 +97,7 @@ def parse_group_name(name: str) -> str | None:
     # тоже валидный case. Не падаем на отсутствии split-токенов.
     tokens = SPLIT_RE.split(cleaned)
     tokens = [strip_internal(t).strip(" (),.-—<>\t") for t in tokens]
+    tokens = [EDGE_SEP_RE.sub("", t).strip() for t in tokens]
     tokens = [t for t in tokens if t and not is_garbage(t)]
     if not tokens:
         return None

@@ -49,10 +49,20 @@ raw AS (
                     t.category) AS category,
            COALESCE(ovr.subcategory, NULLIF(ar.subcategory, ''), mso.subcategory) AS raw_subcategory,
            fsc.fine_bucket,
-           t.company AS company_raw,
+           -- Ключ компании в Superset. Названия у нас и в Superset расходятся,
+           -- поэтому группировать надо по нему, а не по строке. Ключ составной:
+           -- нумерация компаний своя в каждой платформе, один company_id
+           -- склеит разные компании из RU, COM и Remozo.
+           d.company_platform,
+           d.company_id,
+           sc.company_inn,
+           d.company AS company_raw,
+           -- Имя берём из зеркала справочника Superset, чтобы совпадало с
+           -- аналитикой побуквенно. Своё название остаётся запасным вариантом
+           -- для компаний, которых в справочнике нет.
            -- «Unknown» это заглушка парсера, а не компания. Все отчёты её гасят,
            -- иначе она попадает в топ заказчиков наравне с настоящими.
-           NULLIF(COALESCE(al.canonical, t.company), 'Unknown') AS company,
+           NULLIF(COALESCE(sc.company_name, al.canonical, d.company), 'Unknown') AS company,
            ar.summary,
            ar.sentiment,
            ar.priority,
@@ -63,7 +73,11 @@ raw AS (
       LEFT JOIN dialog_fine_subcategory fsc ON fsc.dialog_id = t.dialog_id
       LEFT JOIN manual_category_override ovr ON ovr.dialog_id = t.dialog_id
       LEFT JOIN manual_subcategory_override mso ON mso.dialog_id = t.dialog_id
-      LEFT JOIN alias al ON al.key = lower(btrim(t.company))
+      LEFT JOIN superset_companies sc
+             ON sc.platform = d.company_platform AND sc.company_id = d.company_id
+      -- Компанию берём из dialogs, а не из tickets: tickets это снимок на момент
+      -- ночного пересчёта, а атрибуция обновляется отдельной джобой раньше него.
+      LEFT JOIN alias al ON al.key = lower(btrim(d.company))
      WHERE t.methodology = 'E'
        -- Теневые дубли: тот же чат Telegram, пришедший вторым каналом Flomni.
        -- 211 строк на 25.08.2026. В отчётах их нет, здесь тоже быть не должно.
@@ -83,8 +97,11 @@ SELECT dialog_id,
             ELSE raw_subcategory
        END AS subcategory,
        fine_bucket,
+       company_platform,
+       company_id,
        company,
        company_raw,
+       company_inn,
        client_id,
        chat_name,
        executor_emails,
@@ -134,6 +151,8 @@ SELECT m.dialog_id,
        b.side,
        b.category,
        b.subcategory,
+       b.company_platform,
+       b.company_id,
        b.company,
        m.client_id,
        m.started_at,

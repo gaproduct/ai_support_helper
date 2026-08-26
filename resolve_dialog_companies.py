@@ -57,13 +57,30 @@ def is_internal_company(name: str) -> bool:
     return any(s in n for s in INTERNAL_COMPANY_SUBSTRINGS)
 
 
-def pick_company(rows: Iterable[dict]) -> str | None:
-    """Принимаем все строки contractor_main по одному email — выбираем company."""
-    names = [(r.get("primary_active_company_name") or "").strip() for r in rows]
-    external = [n for n in names if n and not is_internal_company(n)]
+def pick_company(rows: Iterable[dict]) -> tuple[str, int | None, str | None] | None:
+    """Принимаем все строки contractor_main по одному email — выбираем company.
+
+    Возвращаем тройку (название, id, платформа). Ключ здесь пара id + платформа:
+    название компании нестабильно, у многих компаний несколько юрлиц, а
+    нумерация id своя в каждой платформе. Название оставляем как запасной
+    вариант для строк, где id не пришёл.
+    """
+    external = [
+        ((r.get("primary_active_company_name") or "").strip(),
+         r.get("primary_active_company_id"),
+         (r.get("platform") or "").strip() or None)
+        for r in rows
+        if (r.get("primary_active_company_name") or "").strip()
+        and not is_internal_company(r["primary_active_company_name"])
+    ]
     if not external:
         return None
-    return Counter(external).most_common(1)[0][0]
+    name = Counter(n for n, _, _ in external).most_common(1)[0][0]
+    cid, platform = next(
+        ((i, p) for n, i, p in external if n == name and i is not None),
+        (None, None),
+    )
+    return name, cid, platform
 
 
 def fetch_companies(client, emails: list[str]) -> dict[str, list[dict]]:
@@ -73,7 +90,7 @@ def fetch_companies(client, emails: list[str]) -> dict[str, list[dict]]:
         batch = emails[i:i + BATCH_SUPERSET]
         in_list = ",".join("'" + e.replace("'", "''") + "'" for e in batch)
         sql = (
-            f"SELECT email, primary_active_company_name "
+            f"SELECT email, primary_active_company_name, primary_active_company_id, platform "
             f"FROM {CONTRACTOR_TABLE} "
             f"WHERE email IN ({in_list})"
         )
@@ -96,7 +113,7 @@ def fetch_companies_fallback(client, emails: list[str]) -> dict[str, list[dict]]
         batch = emails[i:i + BATCH_SUPERSET]
         in_list = ",".join("'" + e.replace("'", "''") + "'" for e in batch)
         sql = (
-            f"SELECT customer_email, customer_first_company_name "
+            f"SELECT customer_email, customer_first_company_name, company_id, platform "
             f"FROM {COMPANY_TABLE} "
             f"WHERE customer_email IN ({in_list})"
         )
@@ -107,9 +124,11 @@ def fetch_companies_fallback(client, emails: list[str]) -> dict[str, list[dict]]
             max_wait_seconds=120,
         )
         for row in result.get("rows", []):
-            # Нормализуем shape под pick_company(): кладём в ключ primary_active_company_name.
+            # Нормализуем shape под pick_company().
             out[row["customer_email"]].append({
                 "primary_active_company_name": row.get("customer_first_company_name"),
+                "primary_active_company_id": row.get("company_id"),
+                "platform": row.get("platform"),
             })
         log.info("superset COMPANY MAIN batch %d-%d done", i, i + len(batch) - 1)
     return out
@@ -119,7 +138,9 @@ def run(only_empty: bool, source_filter: str) -> None:
     where = ["executor_email IS NOT NULL"]
     params: dict[str, object] = {}
     if only_empty:
-        where.append("company IS NULL")
+        # Диалогам, чьё имя пришло из названия чата, ключ ещё не проставлен —
+        # их тоже надо забрать, иначе связка так и не появится.
+        where.append("(company IS NULL OR company_id IS NULL OR company_platform IS NULL)")
     if source_filter != "all":
         where.append("source = :source")
         params["source"] = source_filter
@@ -144,7 +165,7 @@ def run(only_empty: bool, source_filter: str) -> None:
     log.info("contractor_main hits: %d / %d distinct emails",
              len(rows_per_email), len(emails))
 
-    resolved: dict[str, str] = {}
+    resolved: dict[str, tuple[str, int | None, str | None]] = {}
     for email, rows in rows_per_email.items():
         picked = pick_company(rows)
         if picked is not None:
@@ -171,30 +192,41 @@ def run(only_empty: bool, source_filter: str) -> None:
     BATCH_DB = 200
     items = list(resolved.items())
     updated_rows = 0
+    # В режиме only_empty дописываем недостающее, не трогая уже проставленное:
+    # имя могло прийти из названия чата, а id к нему надо добрать.
+    # В режиме --all-rows перезаписываем оба поля, для этого флаг и нужен.
+    set_sql = ("company = COALESCE(company, :c), company_id = COALESCE(company_id, :cid), "
+               "company_platform = COALESCE(company_platform, :plat)"
+               if only_empty else
+               "company = :c, company_id = :cid, company_platform = :plat")
+
     for i in range(0, len(items), BATCH_DB):
         chunk = items[i:i + BATCH_DB]
         with engine.begin() as conn:
-            for email, company in chunk:
+            for email, (company, cid, platform) in chunk:
                 update_where = ["executor_email = :e"]
                 if only_empty:
-                    update_where.append("company IS NULL")
+                    update_where.append(
+                        "(company IS NULL OR company_id IS NULL OR company_platform IS NULL)")
                 if source_filter != "all":
                     update_where.append("source = :source")
                 res = conn.execute(
                     text(
-                        "UPDATE dialogs SET company = :c "
+                        f"UPDATE dialogs SET {set_sql} "
                         f"WHERE {' AND '.join(update_where)}"
                     ),
-                    {"e": email, "c": company, **({"source": source_filter} if source_filter != "all" else {})},
+                    {"e": email, "c": company, "cid": cid, "plat": platform,
+                     **({"source": source_filter} if source_filter != "all" else {})},
                 )
                 updated_rows += res.rowcount or 0
         log.info("db batch %d-%d done (rows updated so far: %d)",
                  i, i + len(chunk) - 1, updated_rows)
 
-    log.info("=== Done: emails_resolved=%d dialog_rows_updated=%d ===",
-             len(resolved), updated_rows)
+    with_id = sum(1 for _, cid, _ in resolved.values() if cid is not None)
+    log.info("=== Done: emails_resolved=%d (с company_id=%d) dialog_rows_updated=%d ===",
+             len(resolved), with_id, updated_rows)
 
-    top = Counter(resolved.values()).most_common(15)
+    top = Counter(n for n, _, _ in resolved.values()).most_common(15)
     if top:
         log.info("Top-15 companies:")
         for name, n in top:
