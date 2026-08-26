@@ -36,6 +36,6 @@ payouts_agent/session_state/*
 # Stray artifacts in root (backups, ad-hoc xlsx/xls)
 /*.sql
 # Определения витрин это код, а не дамп.
-!/mart_views.sql
+!/superset_views.sql
 /*.xlsx
 /*.xls

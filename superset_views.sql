@@ -8,11 +8,15 @@
 -- Текст переписки наружу не отдаём: в Superset круг доступа шире. Наружу идут
 -- категории, компании, даты, метрики скорости и краткое описание от модели.
 --
--- Применить: psql -U postgres -d support_tickets -f mart_views.sql
+-- Забирать в Superset нужно всё с префиксом superset_, и только его. Всё
+-- остальное в базе это либо сырьё, либо служебное.
+--
+-- Применить: psql -U postgres -d support_tickets -f superset_views.sql
 
 -- Общая часть: атрибуты тикета на уровне диалога.
 -- Материализуем один раз, чтобы обе витрины считали категорию одинаково.
-CREATE OR REPLACE VIEW mart_ticket_base AS
+-- Префикса superset_ здесь нет намеренно: это внутренний слой, забирать не нужно.
+CREATE OR REPLACE VIEW internal_ticket_base AS
 WITH ar AS (
     -- У диалога может быть несколько прогонов разметки. Берём последний.
     -- Физические дубли вычищены 25.08.2026, но ai_analysis вставляет без upsert,
@@ -93,18 +97,18 @@ SELECT dialog_id,
  -- разметке модели, но ручной оверрайд ставится поверх и проходит мимо фильтра.
  WHERE category NOT IN ('Тест', 'Другое', 'Рассылка', 'Дубль', 'Без запроса');
 
-COMMENT ON VIEW mart_ticket_base IS
-'Тикеты методологии E: одна строка на диалог. Категория эффективная, компания каноническая, теневые дубли исключены. Вес строки в ticket_count, а не 1.';
+COMMENT ON VIEW internal_ticket_base IS
+'Служебный слой, в Superset не забирать. Тикеты методологии E: одна строка на диалог. Категория эффективная, компания каноническая, теневые дубли исключены.';
 
 
 -- Витрина 1: тикеты. Одна строка на диалог, плюс агрегаты по инцидентам.
-CREATE OR REPLACE VIEW mart_tickets AS
+CREATE OR REPLACE VIEW superset_tickets AS
 SELECT b.*,
        m.incidents,
        m.messages_total,
        m.first_response_seconds,
        m.resolved_incidents
-  FROM mart_ticket_base b
+  FROM internal_ticket_base b
   LEFT JOIN (
        SELECT dialog_id,
               count(*)                                   AS incidents,
@@ -116,13 +120,13 @@ SELECT b.*,
         GROUP BY dialog_id
   ) m ON m.dialog_id = b.dialog_id;
 
-COMMENT ON VIEW mart_tickets IS
+COMMENT ON VIEW superset_tickets IS
 'Главная витрина: одна строка на тикет-диалог. Для счёта тикетов SUM(ticket_count), не COUNT(*).';
 
 
 -- Витрина 2: инциденты. Одна строка на обращение внутри диалога, метрики скорости.
 -- Диалог режется на инциденты по паузе больше 24 часов перед репликой клиента.
-CREATE OR REPLACE VIEW mart_incidents AS
+CREATE OR REPLACE VIEW superset_incidents AS
 SELECT m.dialog_id,
        m.incident_index,
        b.dialog_date,
@@ -144,9 +148,9 @@ SELECT m.dialog_id,
        m.status,
        m.n_messages
   FROM ticket_resolution_metrics m
-  JOIN mart_ticket_base b ON b.dialog_id = m.dialog_id;
+  JOIN internal_ticket_base b ON b.dialog_id = m.dialog_id;
 
-COMMENT ON VIEW mart_incidents IS
+COMMENT ON VIEW superset_incidents IS
 'Инциденты внутри тикетов методологии E. Гранулярность обращение, не диалог. Скорость первого ответа и решения считать здесь.';
 
 
@@ -157,8 +161,8 @@ COMMENT ON VIEW mart_incidents IS
 -- нельзя, а к диалогам и категориям можно. Отсюда отдельная витрина: она
 -- отвечает на вопрос «сколько обращений и о чём», и только на него.
 --
--- Складывать её с mart_tickets нельзя. Там тикеты, здесь диалоги.
-CREATE OR REPLACE VIEW mart_dialogs_history AS
+-- Складывать её с superset_tickets нельзя. Там тикеты, здесь диалоги.
+CREATE OR REPLACE VIEW superset_dialogs_history AS
 WITH alias AS (
     SELECT DISTINCT ON (lower(btrim(alias)))
            lower(btrim(alias)) AS key, canonical
@@ -203,12 +207,12 @@ archive AS (
 current_era AS (
     SELECT dialog_date, source, side, category, company, chat_name, summary,
            'jun_aug'::text AS data_era
-      FROM mart_ticket_base
+      FROM internal_ticket_base
 )
 SELECT * FROM archive
  WHERE category NOT IN ('Тест', 'Другое', 'Рассылка', 'Дубль', 'Без запроса')
 UNION ALL
 SELECT * FROM current_era;
 
-COMMENT ON VIEW mart_dialogs_history IS
-'Длинный ряд с января по август на уровне диалогов. Категории января-мая сведены к нынешним. Тикетов и метрик скорости здесь нет: до июня их не считали. С mart_tickets не складывается.';
+COMMENT ON VIEW superset_dialogs_history IS
+'Длинный ряд с января по август на уровне диалогов. Категории января-мая сведены к нынешним. Тикетов и метрик скорости здесь нет: до июня их не считали. С superset_tickets не складывается.';
