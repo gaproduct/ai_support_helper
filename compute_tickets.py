@@ -321,9 +321,13 @@ def _dedupe_cross_cabinet(dialogs: list) -> tuple[list, int]:
             for d in members
         }
         # Приоритет сохранения: групповое имя «…MadeTask», затем больший объём.
+        # Объём берём из сигнатуры, а не из messages_count: у flomni-диалогов
+        # это поле пустое, и тогда пара разрешалась порядком строк. Терялся тот
+        # диалог, где резолвится компания. Последним идёт id — чтобы результат
+        # не зависел от порядка выборки.
         ordered = sorted(
             members,
-            key=lambda x: (_is_group_chat(x.chat_name), x.messages_count or 0),
+            key=lambda x: (_is_group_chat(x.chat_name), len(sigs[x.id]), x.id),
             reverse=True,
         )
         kept: list = []

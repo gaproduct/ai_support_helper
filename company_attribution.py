@@ -53,16 +53,48 @@ log = logging.getLogger(__name__)
 
 
 def normalize_companies() -> None:
-    """Свести синонимы dialogs.company к каноничному имени (company_aliases).
+    """Свести синонимы dialogs.company к каноничному имени.
+
+    Два шага. Сначала словарь company_aliases. Потом схлопывание написаний:
+    «ООО "Потенциал"» и «ООО Потенциал» — одна компания, но отчёт группирует
+    по строке названия и показывает их двумя строками. Одинаковыми считаем те,
+    у которых совпадает name_key: он уже игнорирует регистр, кавычки и форму
+    собственности. Из группы берём написание из справочника Superset, а если
+    его там нет — самое частое. Ключ компании при этом не трогаем, меняется
+    только отображаемое имя.
 
     Идёт по distinct-значениям и UPDATE'ит только те, что реально меняются,
     поэтому идемпотентно и дёшево."""
     with engine.connect() as conn:
-        names = [r[0] for r in conn.execute(text(
-            "SELECT DISTINCT company FROM dialogs WHERE company IS NOT NULL"
-        ))]
+        counts = {
+            r[0]: r[1] for r in conn.execute(text(
+                "SELECT company, count(*) FROM dialogs "
+                "WHERE company IS NOT NULL GROUP BY company"
+            ))
+        }
+        official = {
+            r[0] for r in conn.execute(text(
+                "SELECT DISTINCT company_name FROM superset_companies"
+            ))
+        }
 
-    remap = {n: canonical_company(n) for n in names}
+    remap = {n: canonical_company(n) for n in counts}
+
+    by_key: dict[str, list[str]] = {}
+    for name in set(remap.values()):
+        by_key.setdefault(name_key(name), []).append(name)
+
+    for variants in by_key.values():
+        if len(variants) < 2:
+            continue
+        # Частота считается по исходным написаниям, поэтому вариант, в который
+        # уже свёл алиас, весит столько же, сколько его источники.
+        weight = {v: sum(counts[o] for o, n in remap.items() if n == v) for v in variants}
+        best = max(sorted(variants), key=lambda v: (v in official, weight[v]))
+        for old, new in remap.items():
+            if new in variants:
+                remap[old] = best
+
     remap = {old: new for old, new in remap.items() if new != old}
 
     if not remap:
