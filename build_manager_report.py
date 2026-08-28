@@ -28,7 +28,7 @@ from manager_report import build_ts_map, short
 # смежных команд и разовые заходы, они смазывают картину по людям.
 INCLUDE_OPS = {
     "ekozlova", "maleksandrov", "ayaglenko", "abelyakova", "atatyanina",
-    "azaporozhets", "mgazizova", "tvakhitov", "sgavrilenko",
+    "azaporozhets", "mgazizova", "tvakhitov", "sgavrilenko", "fedotova",
 }
 
 # Общий аккаунт ChatApp. За ним живой человек, но кто именно, в данных нет.
