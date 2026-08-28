@@ -89,6 +89,8 @@ def collect(y: int, mo: int) -> dict:
 
     # по отделам: каждый инцидент учитывается один раз
     dept_secs = defaultdict(list)
+    dept_all = Counter()
+    dept_closed = Counter()
     dept_open = Counter()
     inc_with_handoff = 0
     inc_pending = 0
@@ -114,16 +116,23 @@ def collect(y: int, mo: int) -> dict:
             d = met.started_at.date()
             last_day = d if last_day is None or d > last_day else last_day
 
-            # ── срез по отделам, по одному разу на инцидент ──
+            # ── срез по отделам ──
+            # Время считаем по закрытым передачам и складываем по одному разу
+            # на инцидент. Счётчики передач ведём по событиям и отдельно от
+            # met.status: инцидент бывает решён с висящей передачей, и тогда
+            # он в pending_department не попадает, а передача всё равно открыта.
             if met.handoff_seconds_by_dept:
                 inc_with_handoff += 1
                 for dep, sec in met.handoff_seconds_by_dept.items():
                     dept_secs[dep].append(sec)
+            for h in met.handoffs:
+                dept_all[h.department] += 1
+                if h.closed_at is None:
+                    dept_open[h.department] += 1
+                else:
+                    dept_closed[h.department] += 1
             if met.status == "pending_department":
                 inc_pending += 1
-                for h in met.handoffs:
-                    if h.closed_at is None:
-                        dept_open[h.department] += 1
 
             # ── срез по менеджерам ──
             here = set()
@@ -175,17 +184,21 @@ def collect(y: int, mo: int) -> dict:
         })
 
     depts = []
-    for dep in sorted(dept_secs, key=lambda d: -sum(dept_secs[d])):
-        vals = dept_secs[dep]
+    # Идём по всем отделам, куда была хоть одна передача, а не только по тем,
+    # где есть закрытые. Иначе отдел, из которого ни разу не вернулись, просто
+    # пропадает из таблицы и выглядит как «туда не обращались».
+    for dep in sorted(dept_all, key=lambda d: -dept_all[d]):
+        vals = dept_secs.get(dep) or []
         depts.append({
             "dept": dep,
             "label": DEPT_RU.get(dep, dep),
-            "n": len(vals),
-            "total": sum(vals),
-            "avg": statistics.fmean(vals),
-            "med": statistics.median(vals),
-            "max": max(vals),
+            "n": dept_all[dep],
+            "closed": dept_closed.get(dep, 0),
             "open": dept_open.get(dep, 0),
+            "total": sum(vals),
+            "avg": avg(vals),
+            "med": med(vals),
+            "max": max(vals) if vals else None,
         })
 
     all_frt = [v for lst in fr_secs.values() for v in lst]
@@ -518,23 +531,25 @@ def build(months: list[dict]) -> str:
 
     # ── 4. Отделы ──
     o.append('<h2><span class="num">4</span>Смежные отделы: передачи и ожидание</h2>')
-    o.append('<p class="lead">Здесь считается по инцидентам, каждый ровно один раз, без привязки '
-             'к менеджеру. Передача открывается, когда поддержка пишет, что запрос ушёл в отдел, '
-             'и закрывается ответом коллег или фактом решения. Незакрытая передача продолжает '
-             'копить время и держит инцидент в статусе ожидания.</p>')
+    o.append('<p class="lead">Передача открывается, когда поддержка пишет, что запрос ушёл в отдел, '
+             'и закрывается ответом коллег или фактом решения. Колонки «всего / закрыто / открыто» '
+             'считают сами передачи. Время ожидания считается только по закрытым: у открытой '
+             'передачи нет момента ответа, и её длительность неизвестна. Поэтому отдел, из '
+             'которого почти не возвращаются, показывает мало времени, но много открытых передач.</p>')
     o.append('<div class="card">')
     o.append('<div class="toolbar"><div class="seg" id="segDept">'
              '<button class="on" data-k="avg">Среднее ожидание</button>'
              '<button data-k="med">Медиана</button>'
              '<button data-k="total">Суммарно</button>'
-             '<button data-k="n">Число передач</button></div></div>')
+             '<button data-k="n">Число передач</button>'
+             '<button data-k="open">Открытые</button></div></div>')
     o.append('<div id="chDept"></div><div class="legend" id="lgDept"></div>')
     o.append("</div>")
 
     o.append('<div class="card" style="margin-top:14px">')
     o.append('<table class="s" id="tblDept"><thead><tr>'
-             "<th>Отдел</th><th>Месяц</th><th>Передач</th><th>Среднее</th><th>Медиана</th>"
-             "<th>Дольше всего</th><th>Суммарно</th><th>Не закрыто</th>"
+             "<th>Отдел</th><th>Месяц</th><th>Передач</th><th>Закрыто</th><th>Открыто</th>"
+             "<th>Среднее</th><th>Медиана</th><th>Дольше всего</th><th>Суммарно</th>"
              "</tr></thead><tbody></tbody></table>")
     o.append("</div>")
 
@@ -675,15 +690,16 @@ function drawTbl(all){
 function drawDept(){
  const k=state.dept;
  const series=D.months.map(m=>({key:m.key,label:m.label,color:m.color,off:state.offDept.has(m.key)}));
- const f=(k==='n')?fmtNum:fmtDur;
+ const f=(k==='n'||k==='open')?fmtNum:fmtDur;
  const rows=D.depts.map(d=>({label:d.label,vals:D.months.map(m=>{
    const x=D.dept[m.key][d.key];
-   return {series:m.key,value:x?x[k]:0,
+   return {series:m.key,value:(x&&x[k]!=null)?x[k]:0,
     tipHtml:`<b>${d.label}</b> · ${m.label}<br>Передач: <b>${x?x.n:0}</b>`+
+      ` (закрыто ${x?x.closed:0}, открыто ${x?x.open:0})`+
       `<br>Среднее: <b>${x?fmtDur(x.avg):'—'}</b>`+
       `<br>Медиана: <b>${x?fmtDur(x.med):'—'}</b>`+
       `<br>Дольше всего: <b>${x?fmtDur(x.max):'—'}</b>`+
-      `<br><span class="r">суммарно ${x?fmtDur(x.total):'—'}</span>`};
+      `<br><span class="r">суммарно ${x?fmtDur(x.total):'—'} · по закрытым</span>`};
  })})).filter(r=>r.vals.some(v=>v.value>0));
  groupedBar(document.getElementById('chDept'),rows,series,f);
  legend(document.getElementById('lgDept'),series,state.offDept,drawDept);
@@ -694,11 +710,12 @@ function drawDept(){
   out.push(`<tr><td data-v="${d.label}">${d.label}</td>
    <td data-v="${m.key}" class="muted">${m.label}</td>
    <td data-v="${x.n}">${x.n}</td>
+   <td data-v="${x.closed}">${x.closed||'—'}</td>
+   <td data-v="${x.open}">${x.open||'—'}</td>
    <td data-v="${x.avg}">${fmtDur(x.avg)}</td>
    <td data-v="${x.med}">${fmtDur(x.med)}</td>
    <td data-v="${x.max}">${fmtDur(x.max)}</td>
-   <td data-v="${x.total}">${fmtDur(x.total)}</td>
-   <td data-v="${x.open}">${x.open||'—'}</td></tr>`);
+   <td data-v="${x.total}">${fmtDur(x.total)}</td></tr>`);
  }));
  tb.innerHTML=out.join('');
 }
