@@ -48,10 +48,13 @@ from typing import Any, Iterable, Optional
 MSK = timezone(timedelta(hours=3))
 
 # График работы поддержки для «рабочего» времени (в часовом поясе MSK).
+# Окно задано руководителем поддержки: смены идут с 08:00 до 21:00 все дни
+# недели. Прежнее 10:00-19:00 Пн-Пт отсекало 19% сообщений операторов и
+# обнуляло время решения у 19% инцидентов.
 WORK_TZ = MSK
-WORK_START = time(10, 0)   # 10:00
-WORK_END = time(19, 0)     # 19:00
-WORK_DAYS = {0, 1, 2, 3, 4}  # Пн–Пт (0 = понедельник)
+WORK_START = time(8, 0)    # 08:00
+WORK_END = time(21, 0)     # 21:00
+WORK_DAYS = {0, 1, 2, 3, 4, 5, 6}  # все дни недели (0 = понедельник)
 
 # Порог паузы, после которой переписка считается новым инцидентом.
 INCIDENT_GAP_HOURS = 24
@@ -92,6 +95,17 @@ HOLD_TEMPLATES = [
     r"продолжаем работу над вашим запросом",
     r"потребуется.{0,20}больше времени",
     r"нужно немного больше времени",
+    # обещание вернуться с ответом — тоже холд, не ответ. Иначе диалог,
+    # оборвавшийся на «проверим и ответим», считался решённым (ролевое 4b).
+    # Ручная проверка руководителя: SG-022, SG-035.
+    r"ответим в ближайшее время",
+    r"верн(е|ё)мся с ответом",
+    r"проверим детали",
+    # «ваш вопрос у нас на рассмотрении», «выплата в процессе проверки» —
+    # холды. Иначе ролевое 4b закрывало тикет таким сообщением
+    # (руками: SG-108, SG-114, SG-156).
+    r"вопрос.{0,20}на рассмотрении",
+    r"в процессе проверки",
 ]
 GREETING_NOISE = [
     r"здравствуйте",
@@ -117,7 +131,13 @@ CSAT_PATTERNS = [
 HANDOFF_OPEN = {
     "compliance": [
         r"переда(ли|ем|н).{0,30}комплаенс",
-        r"на рассмотрени",
+        # «направили запрос в отдел комплаенс» — та же передача, другой глагол
+        # (руками: SG-036, SG-037)
+        r"(направ|отправ)(или|им|ляем|или)?\w*.{0,30}комплаенс",
+        # голое «на рассмотрении» — обычный холд («ваш вопрос у нас на
+        # рассмотрении»), а не передача в отдел (руками: SG-055, SG-085, SG-088).
+        # Передачей считается только явное «передали на рассмотрение».
+        r"переда(ли|ем|н).{0,25}на рассмотрение",
         r"служб.{0,15}безопасност",
         r"отдел.{0,15}проверк",
     ],
@@ -131,6 +151,7 @@ HANDOFF_OPEN = {
     ],
     "documents": [
         r"переда(ли|ем|н).{0,30}документооборот",
+        r"(направ|отправ)\w*.{0,30}документооборот",
         r"отдел.{0,15}документооборот",
     ],
     # «Юридическое лицо» встречается в поддержке постоянно и к отделу отношения
@@ -288,9 +309,40 @@ SYSTEM_FEED_PATTERNS = [
 SUPPORT_ASK_PATTERNS = [
     r"\?",
     r"подскажите", r"укажите", r"уточните", r"пришлите", r"напишите",
-    r"отправьте", r"предоставьте", r"нужно отправить",
+    r"отправьте", r"направьте", r"предоставьте", r"нужно отправить",
     r"прошу.{0,20}(прислать|направить|уточнить)",
     r"чем.{0,10}помочь", r"какой", r"какую", r"когда вам удобно",
+]
+
+# Закрывающий вопрос вежливости в конце ответа («остались ли ещё вопросы?»,
+# «могу ли ещё чем-то помочь?»). Это НЕ запрос данных: если клиент промолчал,
+# тикет решён ответом выше, а не «ждёт клиента». Ручная разметка руководителя
+# считает решением содержательный ответ перед таким вопросом
+# (SG-060, SG-065, SG-083, SG-105, SG-115).
+CLOSING_ASK_PATTERNS = [
+    # опциональный лид «Подскажите,» / «пожалуйста» срезаем вместе с вопросом,
+    # иначе после среза оставался бы голый «подскажите» и ловился как запрос
+    # данных (руками: SG-105)
+    r"(?:(?:под)?скажите[,!\s]+)?(?:пожалуйста[,!\s]+)?остал(ись|ся|ось)\s*(ли)?[^.!?\n]{0,25}вопрос\w*\s*\??",
+    r"(?:(?:под)?скажите[,!\s]+)?(?:пожалуйста[,!\s]+)?могу\s+(ли\s+я\s+|я\s+|ли\s+)?[^.!?\n]{0,20}(ещё|еще)[^.!?\n]{0,20}помочь\s*\??",
+    r"(чем|что)[- ]?то\s+(ещё|еще)\s+помочь\s*\??",
+    r"(ещё|еще)\s+чем[- ]?(то|нибудь)?\s*(могу\s+)?помочь\s*\??",
+]
+
+# Авто-сообщения бота при входе в чат (приветствие, «дождитесь оператора»,
+# закрытие без оценки). Первым ответом поддержки НЕ считаются. Операторская
+# заглушка «мы получили ваше сообщение» — считается: её отправляет живой
+# оператор, и руководитель поддержки в ручной разметке берёт именно её.
+BOT_AUTO_PATTERNS = [
+    r"на связи компания madetask",
+    r"здесь можно получить ответы по работе в madetask",
+    r"как зарегистрироваться.{0,40}работать с задачами",
+    r"дождитесь.{0,20}подключени.{0,15}оператор",
+    r"вам ответит первый освободившийся оператор",
+    r"в ожидании ответа вы можете",
+    r"выберите интересующий",
+    r"мы не получили от вас оценк",
+    r"окончательно закрыли диалог",
 ]
 
 # Клиент подтвердил закрытие своим последним сообщением → resolved.
@@ -370,7 +422,7 @@ def _compile(patterns: Iterable[str]) -> list[re.Pattern]:
 
 # Отрицание перед глаголом решения: «выплата НЕ прошла», «деньги НЕ пришли»,
 # «вопрос НЕ решён» — такие сообщения решением НЕ являются.
-_NEG_RESOLUTION = re.compile(r"\bне\s+(прош|приш|дош|поступ|реш|работ|выполн|заверш|отправл|восстанов)", re.IGNORECASE)
+_NEG_RESOLUTION = re.compile(r"\bне\s+(прош|приш|дош|поступ|реш|работ|выполн|заверш|отправл|восстанов|получ)", re.IGNORECASE)
 
 _HOLD = _compile(HOLD_TEMPLATES)
 _GREETING = _compile(GREETING_NOISE)
@@ -383,6 +435,8 @@ _CLIENT_RESOLUTION = _compile(CLIENT_RESOLUTION)
 _PROMISE = _compile(PROMISE_PATTERNS)
 _SYSTEM_FEED = _compile(SYSTEM_FEED_PATTERNS)
 _SUPPORT_ASK = _compile(SUPPORT_ASK_PATTERNS)
+_CLOSING_ASK = _compile(CLOSING_ASK_PATTERNS)
+_BOT_AUTO = _compile(BOT_AUTO_PATTERNS)
 _CLIENT_CLOSE = _compile(CLIENT_CLOSE_PATTERNS)
 _CLIENT_CONFIRM = _compile(CLIENT_CONFIRM_PATTERNS)
 _CLIENT_FILLER = _compile(CLIENT_FILLER_PATTERNS)
@@ -540,9 +594,40 @@ def _is_system_feed(text: str) -> bool:
     return _matches(_SYSTEM_FEED, text)
 
 
+def _strip_closing(text: str) -> str:
+    """Срезаем закрывающие вопросы вежливости («остались ли вопросы?»)."""
+    out = text
+    for p in _CLOSING_ASK:
+        out = p.sub(" ", out)
+    return out
+
+
+_CLOSING_LEAD = re.compile(r"(подскажите|пожалуйста)[,!\s]*", re.IGNORECASE)
+
+
+def _is_closing_only(text: str) -> bool:
+    """True, если сообщение — только вопрос вежливости, без содержательной части.
+
+    Такое сообщение не «запрос данных»: если клиент промолчал, тикет решён
+    предыдущим ответом, а не «ждёт клиента» (руками: SG-060, SG-065, SG-083).
+    """
+    residue = _strip_closing(text)
+    if residue == text:
+        return False
+    residue = _CLOSING_LEAD.sub(" ", residue)
+    for p in _GREETING:
+        residue = p.sub(" ", residue)
+    residue = re.sub(r"[^0-9A-Za-zА-Яа-яЁё]+", "", residue)
+    return len(residue) < 3
+
+
 def _is_support_ask(text: str) -> bool:
-    """True, если поддержка запрашивает данные / задаёт уточняющий вопрос."""
-    return _matches(_SUPPORT_ASK, text)
+    """True, если поддержка запрашивает данные / задаёт уточняющий вопрос.
+
+    Закрывающий вопрос вежливости («могу ли ещё чем-то помочь?») срезаем до
+    проверки: он не делает ответ поддержки запросом данных.
+    """
+    return _matches(_SUPPORT_ASK, _strip_closing(text))
 
 
 def _is_client_filler(m: "Msg") -> bool:
@@ -552,11 +637,14 @@ def _is_client_filler(m: "Msg") -> bool:
 
 def _last_substantive(msgs: list["Msg"], skip_filler: bool = False):
     """Последнее содержательное сообщение; при skip_filler пропускаем хвостовые
-    клиентские филлеры («подожду»), т.к. они не меняют, чей ход."""
+    клиентские филлеры («подожду») и отдельные закрывающие вопросы вежливости
+    поддержки («остались ли вопросы?») — они не меняют, чей ход."""
     for x in reversed(msgs):
         if not x.substantive:
             continue
         if skip_filler and _is_client_filler(x):
+            continue
+        if skip_filler and x.is_support and _is_closing_only(x.text):
             continue
         return x
     return None
@@ -702,10 +790,12 @@ def _extract_handoffs(msgs: list[Msg]) -> list[Handoff]:
                 h.closed_at = m.ts
                 handoffs.append(h)
                 del open_by_dept[dep]
-        # открытие новых — но НЕ на сообщении-резолюции (иначе упоминание отдела
-        # в тексте решения, напр. «согласован с финансовым отделом», ложно
-        # переоткрывает только что закрытую передачу).
-        if _is_resolution(m.text, True):
+        # открытие новых — но НЕ на сообщении-резолюции и НЕ на сообщении с
+        # маркером возврата. Упоминание отдела в тексте ответа («получили
+        # ответ от финансового отдела, платёж зачислен») — это ответ отдела,
+        # а не новая передача. Иначе фантомная передача остаётся открытой и
+        # блокирует ролевое закрытие тикета (шаг 4b), время отдела теряется.
+        if closes:
             continue
         for dep, pats in _HANDOFF_OPEN.items():
             if dep not in open_by_dept and _matches(pats, m.text):
@@ -729,23 +819,25 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
         return metrics
     metrics.started_at = first_client.ts
 
-    # 2) first response — первый содержательный ответ поддержки после старта
+    # 2) first response — первая реакция живой поддержки после старта.
+    #    Операторская заглушка «мы получили ваше сообщение» СЧИТАЕТСЯ: её шлёт
+    #    оператор, и руководитель поддержки в ручной разметке берёт именно её.
+    #    Не считаются авто-сообщения бота (приветствие, «дождитесь оператора»)
+    #    и CSAT-опросы.
     first_resp = next(
-        (m for m in msgs if m.is_support and m.substantive and m.ts >= first_client.ts),
+        (m for m in msgs
+         if m.is_support and m.ts >= first_client.ts and m.text.strip()
+         and not m.is_csat and not _matches(_BOT_AUTO, m.text)
+         and not _is_system_feed(m.text)),
         None,
     )
     if first_resp:
         metrics.first_response_at = first_resp.ts
         metrics.first_response_seconds = (first_resp.ts - first_client.ts).total_seconds()
 
-    # 3) хендоффы в смежные отделы
+    # 3) хендоффы в смежные отделы. Суммы считаются ниже, после шага 4:
+    #    момент решения может закрыть зависшую передачу (см. 4c).
     metrics.handoffs = _extract_handoffs(msgs)
-    for h in metrics.handoffs:
-        if h.seconds is not None:
-            metrics.handoff_seconds_by_dept[h.department] = (
-                metrics.handoff_seconds_by_dept.get(h.department, 0.0) + h.seconds
-            )
-            metrics.handoff_seconds_total += h.seconds
 
     # 4) решение — приоритет у явного маркера «выполнено»/подтверждения клиента
     #    (берём последний по времени). Простое «спасибо» тут не в счёт.
@@ -756,6 +848,22 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
         if _is_resolution(m.text, m.is_support):
             resolution_msg = m
 
+    # клиент вернулся ПОСЛЕ «решения» с новым содержательным сообщением
+    # (не «спасибо», не филлер) и остался без ответа — вопрос не закрыт
+    # (руками: SG-087, SG-127).
+    if resolution_msg is not None:
+        last_sub = _last_substantive(msgs, skip_filler=True)
+        if last_sub is not None and last_sub.ts > resolution_msg.ts \
+                and last_sub.is_client:
+            closes = ("?" not in last_sub.text) and (
+                _matches(_CLIENT_CLOSE, last_sub.text)
+                or _matches(_CLIENT_CONFIRM, last_sub.text)
+                or _matches(_CLIENT_NEG_CLOSE, last_sub.text)
+                or _matches(_CLIENT_ACK, last_sub.text)
+            )
+            if not closes:
+                resolution_msg = None
+
     # 4a) явное закрытие клиентом важнее открытой передачи в отдел: если клиент
     #     ПОСЛЕДНИМ содержательным сообщением подтвердил закрытие («спасибо вам
     #     большое», «вопрос снят» …), тикет решён, даже если хендофф формально
@@ -765,7 +873,18 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
         if last_sub is not None and last_sub.ts >= first_client.ts \
                 and last_sub.is_client and _matches(_CLIENT_CLOSE, last_sub.text) \
                 and not _NEG_RESOLUTION.search(last_sub.text):
-            resolution_msg = last_sub
+            # «Ок, спасибо» сразу после «передали запрос в отдел» — вежливый
+            # ответ на передачу, а не закрытие вопроса (руками: SG-097).
+            prev_sup = next(
+                (x for x in reversed(msgs)
+                 if x.substantive and x.is_support and x.ts < last_sub.ts),
+                None,
+            )
+            prev_opens_handoff = prev_sup is not None and any(
+                _matches(pats, prev_sup.text) for pats in _HANDOFF_OPEN.values()
+            )
+            if not prev_opens_handoff:
+                resolution_msg = last_sub
 
     # 4b) ролевое доопределение (тип A), если явного маркера нет и нет открытой
     #     передачи в смежный отдел. Диалог закрыт по факту, если последнее
@@ -804,9 +923,12 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
                 ):
                     resolution_msg = last_sub
             elif last_sub.is_client and _matches(_CLIENT_ACK, last_sub.text) \
-                    and not _NEG_RESOLUTION.search(last_sub.text):
+                    and not _NEG_RESOLUTION.search(last_sub.text) \
+                    and "?" not in last_sub.text:
                 # клиент принял ответ («понятно/окей») — закрытие, только если
                 # последний ход поддержки был реальным ОТВЕТОМ (не вопрос, не холд).
+                # «Понял, а можно ли …?» — это НОВЫЙ вопрос, не закрытие
+                # (руками: SG-108).
                 prev_sup_any = next(
                     (x for x in reversed(msgs)
                      if not x.is_client and x.ts < last_sub.ts),
@@ -820,6 +942,24 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
         metrics.resolved_at = resolution_msg.ts
         metrics.resolution_seconds = (resolution_msg.ts - first_client.ts).total_seconds()
         metrics.resolution_working_seconds = working_seconds(first_client.ts, resolution_msg.ts)
+
+    # 4c) решение закрывает зависшие передачи. Если тикет решён, ответ из
+    #     смежного отдела по факту вернулся, даже когда скриптовой фразы
+    #     возврата в переписке не было (клиент закрыл сам: «спасибо, всё
+    #     получилось»). Без этого время в отделе терялось: список отделов
+    #     заполнен, а часы по ним нулевые.
+    if metrics.resolved_at is not None:
+        for h in metrics.handoffs:
+            if h.closed_at is None and h.opened_at <= metrics.resolved_at:
+                h.closed_at = metrics.resolved_at
+
+    # суммы по отделам — после 4c, иначе закрытые решением передачи не в счёт
+    for h in metrics.handoffs:
+        if h.seconds is not None:
+            metrics.handoff_seconds_by_dept[h.department] = (
+                metrics.handoff_seconds_by_dept.get(h.department, 0.0) + h.seconds
+            )
+            metrics.handoff_seconds_total += h.seconds
 
     # 5) статус
     metrics.status = _status(msgs, metrics)

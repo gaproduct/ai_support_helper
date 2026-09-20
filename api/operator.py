@@ -4,9 +4,15 @@
 Собираем в один ответ четыре блока:
 
   ticket    что за обращение и от кого
+  status    текущий статус тикета и журнал переходов
   similar   пять похожих кейсов с решением
   executor  задачи, выплаты и заказчики исполнителя из Superset
   history   с чем этот же клиент писал в поддержку раньше
+
+Статусы — первоисточник для ORT. Спецификация SLA написана в статусах,
+по тексту переписки они не восстанавливаются, поэтому оператор фиксирует
+переходы прямо в карточке. Часы ORT идут только в «Новый» и «В работе
+у поддержки».
 
 Блоки независимы. Если Superset лежит или исполнитель не опознан, остальное всё
 равно покажется: оператору лучше половина карточки, чем страница с ошибкой.
@@ -19,6 +25,7 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import text
 
 import ai_analysis
@@ -35,6 +42,23 @@ SIMILAR_LIMIT = 5
 HISTORY_LIMIT = 10
 # Больше в промпт классификатора не отдаём, категорию видно по первым фразам.
 MAX_QUERY_CHARS = 1500
+
+# Статусы из спецификации SLA руководителя поддержки. Порядок = порядок в UI.
+STATUSES = [
+    "Новый",
+    "В работе у поддержки",
+    "Ожидает клиента",
+    "Ожидает комплаенса",
+    "Ожидает разработки",
+    "Ожидает финансового отдела",
+    "Ожидает банкинга",
+    "Ожидает аккаунт-менеджера",
+    "Ожидает юридического отдела",
+    "Ожидает ответ провайдера",
+    "Решён",
+]
+# Пока тикет в этих статусах, часы ORT идут. В остальных — стоят.
+ORT_RUNNING = {"Новый", "В работе у поддержки"}
 
 
 def _check_token(token: str) -> None:
@@ -121,6 +145,71 @@ def _history(db, source: str, client_id: str, limit: int) -> list[dict]:
     ]
 
 
+def _status_events(db, incoming_id: int) -> list[dict]:
+    """Журнал переходов, свежее сверху."""
+    rows = db.execute(text("""
+        SELECT status, set_by, set_at
+        FROM ticket_status_events
+        WHERE incoming_id = :id
+        ORDER BY set_at DESC, id DESC
+    """), {"id": incoming_id}).fetchall()
+    return [
+        {
+            "status": r.status,
+            "set_by": r.set_by,
+            "set_at": r.set_at.isoformat(),
+            "ort_running": r.status in ORT_RUNNING,
+        }
+        for r in rows
+    ]
+
+
+def _status_block(db, incoming_id: int) -> dict:
+    events = _status_events(db, incoming_id)
+    return {
+        "current": events[0]["status"] if events else "Новый",
+        "allowed": STATUSES,
+        "events": events,
+    }
+
+
+class StatusChange(BaseModel):
+    id: int
+    status: str
+    operator: str = ""
+    token: str = ""
+
+
+@router.post("/status")
+def set_status(body: StatusChange) -> dict:
+    """Оператор фиксирует переход статуса. Один вызов = одна строка журнала."""
+    _check_token(body.token)
+    if body.status not in STATUSES:
+        raise HTTPException(status_code=422, detail="неизвестный статус")
+
+    with get_session() as db:
+        exists = db.execute(text(
+            "SELECT 1 FROM incoming_messages WHERE id = :id"
+        ), {"id": body.id}).first()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="обращение не найдено")
+
+        last = db.execute(text("""
+            SELECT status FROM ticket_status_events
+            WHERE incoming_id = :id ORDER BY set_at DESC, id DESC LIMIT 1
+        """), {"id": body.id}).first()
+        if last is not None and last.status == body.status:
+            # повторный клик по тому же статусу журнал не засоряет
+            return _status_block(db, body.id)
+
+        db.execute(text("""
+            INSERT INTO ticket_status_events (incoming_id, status, set_by)
+            VALUES (:id, :st, :by)
+        """), {"id": body.id, "st": body.status, "by": body.operator.strip()})
+        db.commit()
+        return _status_block(db, body.id)
+
+
 @router.get("/card")
 def card(id: int = Query(..., description="incoming_messages.id"),
          token: str = Query("")) -> dict:
@@ -140,6 +229,7 @@ def card(id: int = Query(..., description="incoming_messages.id"),
 
         email, how = operator_profile.resolve_executor_email(db, source, client_id)
         history = _history(db, source, client_id, HISTORY_LIMIT)
+        status = _status_block(db, id)
 
     executor: dict = {"email": email, "resolved_by": how}
     if email:
@@ -147,6 +237,7 @@ def card(id: int = Query(..., description="incoming_messages.id"),
 
     return {
         "ticket": ticket | {"side": side, "category": category},
+        "status": status,
         "similar": similar,
         "executor": executor,
         "history": history,

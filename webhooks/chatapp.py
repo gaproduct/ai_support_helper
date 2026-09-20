@@ -27,6 +27,7 @@ ChatApp шлёт массив envelope'ов:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -43,6 +44,11 @@ log = logging.getLogger(__name__)
 SLACK_TAG = "🔵 *Remozo*"
 
 SOURCE = "chatapp"
+
+# Ленты кошелька («Wallet XhPDT transactions») — бот-уведомления о транзакциях,
+# а не обращения. Не заводим IncomingMessage и не дёргаем операторов в Slack.
+# Тот же паттерн, что EXCLUDE_CHATNAME_RE в compute_tickets.
+FEED_CHATNAME_RE = re.compile(r"wallet\s+\S+\s+transactions", re.I)
 
 
 def _unix_to_iso(ts: int | float | None) -> str:
@@ -86,6 +92,8 @@ def _parse_message(item: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]
         or from_user.get("username")
         or ""
     )
+    if FEED_CHATNAME_RE.search(name):
+        return None
     return {
         "client_id": chat_id,
         "name": name,

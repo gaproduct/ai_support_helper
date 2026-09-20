@@ -128,6 +128,9 @@ def _iter_dialogs(limit: int | None):
                               WHERE a.dialog_id = d.id)
                   AND NOT EXISTS (SELECT 1 FROM shadow_duplicate_dialogs s
                                   WHERE s.dialog_id = d.id)
+                  -- ленты кошелька — бот-уведомления, им не место в похожих кейсах
+                  AND (d.chat_name IS NULL
+                       OR d.chat_name !~* 'wallet\s+\S+\s+transactions')
                 ORDER BY d.id
                 LIMIT :batch
             """), {"last": last_id, "batch": DB_BATCH}).fetchall()

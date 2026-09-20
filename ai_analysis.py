@@ -583,6 +583,11 @@ def _has_substantive_inbound(messages_text: str | None) -> bool:
     return False
 
 
+# Ленты кошелька («Wallet XhPDT transactions») — бот-уведомления, не обращения.
+# Разбирать их нечего: помечаем processed без AnalysisResult, токены не тратим.
+_WALLET_FEED_RE = re.compile(r"wallet\s+\S+\s+transactions", re.I)
+
+
 def run() -> None:
     log.info("Starting AI analysis job.")
 
@@ -598,6 +603,16 @@ def run() -> None:
     for dialog in pending:
         if not dialog.messages_text or not dialog.messages_text.strip():
             log.debug("Dialog %d has no text, skipping.", dialog.id)
+            continue
+
+        if _WALLET_FEED_RE.search(dialog.chat_name or ""):
+            log.info("Dialog %d — лента кошелька, пропускаю без разбора.", dialog.id)
+            with get_session() as db:
+                db_dialog = db.get(Dialog, dialog.id)
+                if db_dialog:
+                    db_dialog.processed = True
+                    db_dialog.updated_at = datetime.now(timezone.utc)
+                db.commit()
             continue
 
         # Сторона определяется детерминированно (не LLM): заказчик, если чат

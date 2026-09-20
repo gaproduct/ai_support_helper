@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import statistics
 from collections import Counter, defaultdict
 from datetime import date
@@ -64,27 +63,6 @@ DEPT_RU = {
 
 def keep(name: str) -> bool:
     return name in INCLUDE_OPS or name == SHARED_LABEL
-
-
-# Реплика бота, которой он передаёт диалог на линию поддержки.
-ROUTED_RE = re.compile(r"дождитесь.{0,20}подключени.{0,15}оператор", re.I)
-
-
-def frt_start(seg, started_at, first_at):
-    """С какого момента считать первый ответ.
-
-    Пока бот не распределил диалог, оператор его не видит и отвечать не может.
-    Момент передачи виден по реплике «Дождитесь, пожалуйста, подключения
-    оператора». Отсчёт идёт от последнего сообщения клиента перед ней, а не от
-    самого первого обращения. Иначе часы бота попадают в метрику человека.
-    """
-    routed = [m.ts for m in seg
-              if m.is_support and m.ts <= first_at and ROUTED_RE.search(m.text or "")]
-    if not routed:
-        return started_at
-    cut = max(routed)
-    asked = [m.ts for m in seg if m.is_client and started_at <= m.ts <= cut]
-    return max(asked) if asked else started_at
 
 
 def collect(y: int, mo: int) -> dict:
@@ -208,38 +186,29 @@ def collect(y: int, mo: int) -> dict:
                 if met.handoff_seconds_by_dept:
                     handoff_inc[name] += 1
 
-            # Первый ответ по определению руководителя поддержки: любая первая
-            # реплика живого оператора, включая «взяли в работу». Клиент в этот
-            # момент уже получил контакт. Прежний met.first_response_at ждал
-            # содержательного текста и пропускал отбивки, из-за чего завышал
-            # метрику на 35 минут в медиане. Ручная сверка: 12 совпадений из 14
-            # против 0 у старого определения. Бот сюда не попадает: у его
-            # сообщений нет записи в tsmap.
-            first_at = next((x.ts for x in seg if x.is_support
-                             and x.ts >= met.started_at and tsmap.get(x.ts)), None)
-
-            fr_from = frt_start(seg, met.started_at, first_at) if first_at else None
-
-            if first_at is not None:
-                name = short(tsmap[first_at])
-                if keep(name):
+            if met.first_response_at is not None:
+                who = tsmap.get(met.first_response_at)
+                name = short(who) if who else None
+                if name and keep(name):
                     firstresp[name] += 1
-                    fr_secs[name].append((first_at - fr_from).total_seconds())
-            elif met.first_response_at is not None:
-                fr_unknown += 1
+                    if met.first_response_seconds is not None:
+                        fr_secs[name].append(met.first_response_seconds)
+                elif who is None:
+                    fr_unknown += 1
 
             # ── срез по SLA ──
             if sla_seg is None:
                 sla_skipped += 1
                 continue
             sla_inc[sla_seg] += 1
-            # Обе метрики в рабочих секундах (все дни 08:00–21:00 MSK): норматив
+            # Обе метрики в рабочих секундах (Пн–Пт 10:00–19:00 MSK): норматив
             # в 8 часов для Low имеет смысл только в графике поддержки.
-            if first_at is not None:
-                frt = rm.working_seconds(fr_from, first_at)
-                name = short(tsmap[first_at])
+            if met.first_response_at is not None:
+                frt = rm.working_seconds(met.started_at, met.first_response_at)
+                who = tsmap.get(met.first_response_at)
+                name = short(who) if who else None
                 sla[sla_seg][""]["frt"].append(frt)
-                if keep(name):
+                if name and keep(name):
                     sla[sla_seg][name]["frt"].append(frt)
             if met.resolved_at is not None and met.resolution_working_seconds is not None:
                 who = tsmap.get(met.resolved_at)
@@ -553,23 +522,14 @@ def build(months: list[dict]) -> str:
         "dept": {m["key"]: {d["dept"]: d for d in m["depts"]} for m in months},
     }
 
-    def delta(cur, old, lower_is_better=False, days_cur=None, days_old=None):
-        """Изменение к предыдущему месяцу.
-
-        Счётные метрики приводятся к «в день», если месяцы разной длины. Иначе
-        неполный месяц выглядит как обвал вдвое, хотя в нём просто меньше дней.
-        """
+    def delta(cur, old, lower_is_better=False):
         if old in (None, 0) or cur is None:
             return '<div class="d flat">нет базы</div>'
-        note = "к пред. месяцу"
-        if days_cur and days_old and days_cur != days_old:
-            cur, old = cur / days_cur, old / days_old
-            note = "к пред. месяцу, в день"
         p = (cur - old) / old * 100
         good = (p < 0) if lower_is_better else (p > 0)
         cls = "up" if good else ("down" if abs(p) >= 1 else "flat")
         sign = "+" if p > 0 else ""
-        return f'<div class="d {cls}">{sign}{p:.0f}% {note}</div>'
+        return f'<div class="d {cls}">{sign}{p:.0f}% к пред. месяцу</div>'
 
     total_inc = sum(m["incidents"] for m in months)
     o = []
@@ -588,27 +548,18 @@ def build(months: list[dict]) -> str:
              f'методология E. Данные по {last["last_day"]}.</div>')
     o.append("</div></div>")
 
-    # Дни месяцев нужны счётным KPI: неполный месяц сравнивается в пересчёте
-    # на день, иначе срез за 10 дней выглядит как падение вдвое.
-    d_cur = last["days"]
-    d_old = prev["days"] if prev else None
-    part = f' ({d_cur} дн.)' if prev and d_cur != d_old else ""
-    d_inc = delta(last["incidents"], prev["incidents"] if prev else None,
-                  days_cur=d_cur, days_old=d_old)
-    d_frt = delta(last["frt_med_all"], prev["frt_med_all"] if prev else None, True)
-    d_pend = delta(last["inc_pending"], prev["inc_pending"] if prev else None, True,
-                   days_cur=d_cur, days_old=d_old)
-
     o.append('<div class="wrap"><div class="kpis">')
     o.append(f'<div class="kpi"><div class="v">{total_inc}</div><div class="l">Инцидентов за период</div>'
              f'<div class="d flat">{len(months)} мес.</div></div>')
     o.append(f'<div class="kpi"><div class="v">{last["incidents"]}</div>'
-             f'<div class="l">Инцидентов, {last["label"].split()[0].lower()}{part}</div>'
-             f'{d_inc}</div>')
+             f'<div class="l">Инцидентов, {last["label"].split()[0].lower()}</div>'
+             f'{delta(last["incidents"], prev["incidents"] if prev else None)}</div>')
     o.append(f'<div class="kpi"><div class="v">{fmt(last["frt_med_all"])}</div>'
-             f'<div class="l">Медиана первого ответа</div>{d_frt}</div>')
+             f'<div class="l">Медиана первого ответа</div>'
+             f'{delta(last["frt_med_all"], prev["frt_med_all"] if prev else None, True)}</div>')
     o.append(f'<div class="kpi"><div class="v">{last["inc_pending"]}</div>'
-             f'<div class="l">Ждут смежный отдел</div>{d_pend}</div>')
+             f'<div class="l">Ждут смежный отдел</div>'
+             f'{delta(last["inc_pending"], prev["inc_pending"] if prev else None, True)}</div>')
     o.append("</div>")
 
     # ── 1. Нагрузка ──
@@ -627,12 +578,9 @@ def build(months: list[dict]) -> str:
 
     # ── 2. Скорость первого ответа ──
     o.append('<h2><span class="num">2</span>Скорость первого ответа</h2>')
-    o.append('<p class="lead">Время от обращения клиента до первого сообщения живого '
-             'оператора. «Взяли в работу» и «сейчас посмотрим» считаются ответом: клиент '
-             'в этот момент уже получил контакт с человеком. Сообщения бота ответом не '
-             'считаются. Если диалог сначала вёл бот, отсчёт идёт не от первого обращения, '
-             'а от момента, когда бот передал диалог на линию: до этого оператор запроса '
-             'не видит. Метрика приписана тому, кто написал первым.</p>')
+    o.append('<p class="lead">Время от обращения клиента до первого содержательного ответа. '
+             'Автоответы, приветствия и «мы получили ваш запрос» ответом не считаются. '
+             'Метрика приписана тому, кто ответил первым.</p>')
     o.append('<div class="card">')
     o.append('<div class="toolbar"><div class="seg" id="segFrt">'
              '<button class="on" data-k="frt_med">Медиана</button>'
@@ -689,17 +637,9 @@ def build(months: list[dict]) -> str:
              'Сегмент заказчика определяется оборотом закрытых задач за предыдущий месяц: '
              'High больше 10 млн ₽, Medium от 3 до 10 млн ₽, Low меньше 3 млн ₽. Исполнители '
              'идут отдельным сегментом. Обе метрики считаются в рабочем времени поддержки '
-             '(все дни, 08:00–21:00 МСК): норматив в 8 часов для Low в календарном времени '
+             '(Пн–Пт, 10:00–19:00 МСК): норматив в 8 часов для Low в календарном времени '
              'смысла не имеет. Заказчики, у которых в данных нет компании, в этот раздел '
              'не попадают.</p>')
-
-    o.append('<div class="note"><b>Первый ответ считать можно, время решения пока нет.</b> '
-             'Первый ответ это факт: первое сообщение живого оператора клиенту. Ручная '
-             'сверка руководителя поддержки подтвердила 12 замеров из 14. Время решения '
-             'требует ответа на вопрос «какое сообщение было решением», а он выводится из '
-             'текста переписки и ошибается: сверка дала 8 совпадений из 18. Колонки ORT '
-             'ниже помечены как черновик, принимать по ним решения по людям нельзя. '
-             'Метрика станет точной, когда в карточке тикета появятся реальные статусы.</div>')
 
     def sla_pct(v):
         if v is None:
@@ -711,9 +651,7 @@ def build(months: list[dict]) -> str:
     o.append('<table class="s"><thead><tr>'
              "<th>Сегмент</th><th>Месяц</th><th>Инц</th>"
              "<th>Норма 1-го ответа</th><th>Факт, медиана</th><th>В норме</th>"
-             '<th class="muted">Норма решения<br>черновик</th>'
-             '<th class="muted">Факт, медиана<br>черновик</th>'
-             '<th class="muted">В норме<br>черновик</th>'
+             "<th>Норма решения</th><th>Факт, медиана</th><th>В норме</th>"
              "</tr></thead><tbody>")
     for seg_name in SEG_ORDER:
         for m in months:
@@ -744,9 +682,7 @@ def build(months: list[dict]) -> str:
                  f'решение {fmt(blk["ort_norm"])} рабочего времени</span></div>')
         o.append('<table class="s"><thead><tr><th>Менеджер</th>'
                  "<th>1-х отв</th><th>FRT медиана</th><th>FRT в норме</th>"
-                 '<th class="muted">Решений<br>черновик</th>'
-                 '<th class="muted">ORT медиана<br>черновик</th>'
-                 '<th class="muted">ORT в норме<br>черновик</th>'
+                 "<th>Решений</th><th>ORT медиана</th><th>ORT в норме</th>"
                  "</tr></thead><tbody>")
         ranked = sorted(((n, c) for n, c in blk["mgr"].items() if n),
                         key=lambda kv: -(kv[1]["frt"]["n"] + kv[1]["ort"]["n"]))
@@ -793,31 +729,18 @@ def build(months: list[dict]) -> str:
     o.append("<li><b>Инциденты общие.</b> В разделах 1, 2 и 3 обращение приписано каждому, кто в нём "
              "работал. Столбцы нельзя складывать между менеджерами. Раздел 4 свободен от этого: "
              "там счёт по инцидентам.</li>")
-    o.append(f'<li><b>Часть обращений без живого ответа.</b> В {last["label"].lower()} в '
-             f'{last["fr_unknown"]} обращениях клиенту ответил только бот, человек не '
-             "подключился. В скорость первого ответа они не входят.</li>")
-    o.append("<li><b>Определение первого ответа изменилось.</b> Раньше считалось время до "
-             "первого содержательного текста, отбивка «взяли в работу» пропускалась. "
-             "Теперь считается первое сообщение живого оператора, как и просил руководитель "
-             "поддержки. Метрика стала короче примерно на 35 минут в медиане, работа при "
-             "этом не изменилась. С отчётами до сентября цифры не сравнивать.</li>")
+    o.append(f'<li><b>Часть работы без имени.</b> В {last["label"].lower()} {last["fr_unknown"]} первых '
+             "ответов не привязаны к человеку. Это автоприветствия бота и общий аккаунт поддержки, "
+             "за которым стоит живой человек, но имени в данных нет.</li>")
     o.append("<li><b>В отчёте только линия поддержки:</b> " + ", ".join(sorted(INCLUDE_OPS)) +
              f" и общий аккаунт <code>{SHARED_LABEL}</code>. Все остальные, кто писал клиентам, "
              "из выборки исключены: это сотрудники смежных команд и разовые заходы.</li>")
     o.append("<li><b>Время решения только в разделе 5.</b> Отметка «вопрос закрыт» ставится "
              "автоматически и иногда ошибается. В нагрузке и в сводной таблице её нет, чтобы "
              "не путать, а в SLA она нужна: без неё норматив на решение нечем измерить.</li>")
-    o.append("<li><b>SLA считается в рабочем времени</b> поддержки: все дни, 08:00–21:00 МСК. "
-             "Окно задал руководитель поддержки. До сентября в коде стояло 10:00–19:00 Пн–Пт, "
-             "это отсекало 19% сообщений операторов и обнуляло время решения у 19% инцидентов. "
-             "Цифры за прошлые месяцы пересчитаны по новому окну и с прежними отчётами "
-             "не сойдутся. Скорость первого ответа в разделе 2 наоборот календарная, поэтому "
-             "цифры в разделах 2 и 5 тоже не совпадают.</li>")
-    o.append("<li><b>Время решения это черновик.</b> Момент решения определяется по тексту "
-             "переписки, и определяется плохо: ручная сверка дала 8 совпадений из 18. "
-             "Первый ответ так не ломается, там нужен только факт первого сообщения "
-             "оператора, сверка дала 12 из 14. Пока в карточке тикета нет реальных статусов, "
-             "колонки ORT читаем как оценку порядка величины.</li>")
+    o.append("<li><b>SLA считается в рабочем времени</b> поддержки: Пн–Пт, 10:00–19:00 МСК. "
+             "Скорость первого ответа в разделе 2 наоборот календарная, поэтому цифры в "
+             "разделах 2 и 5 не совпадают.</li>")
     o.append(f'<li><b>Без компании нет сегмента.</b> В {last["label"].lower()} '
              f'{last["sla_skipped"]} обращений заказчиков не удалось связать с компанией, они '
              f'в раздел 5 не вошли. Сегмент берётся по обороту за {last["seg_month"]}: он '
