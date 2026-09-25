@@ -106,6 +106,18 @@ HOLD_TEMPLATES = [
     # (руками: SG-108, SG-114, SG-156).
     r"вопрос.{0,20}на рассмотрении",
     r"в процессе проверки",
+    # ручная проверка по всем операторам (1-20 сентября): вариации холдов
+    # (руками: SG-009, AB-003, AB-005, MG-010)
+    r"взяли ваш запрос в работу",
+    r"запрос зафиксирован",
+    r"запрос.{0,25}находится в работе",
+    r"мониторим (заявку|запрос)",
+    r"точно не подскаж",
+    # англоязычные «передали команде/коллегам» — передача или холд, не решение
+    # (руками: AT-002/AZ-001, AT-005, AZ-008, FE-001)
+    r"(forwarded|passed)[^.!?]{0,45}(team|colleagues|specialists|department)",
+    r"your request has been forwarded",
+    r"we[’']?ve (started|begun) working on your request",
 ]
 GREETING_NOISE = [
     r"здравствуйте",
@@ -256,7 +268,9 @@ RESOLUTION_DONE = [
     # англоязычные маркеры решения (поддержка)
     r"successfully processed",
     r"has been (successfully )?(processed|completed|sent|resolved)",
-    r"payment.{0,25}(completed|processed|successful)",
+    # «being processed» — процесс, не результат, поэтому голое processed не берём
+    # (руками: FE-001); завершённое «has been processed» ловит шаблон выше
+    r"payment.{0,25}(completed|successful)\b",
     r"is now (completed|resolved|done)",
     r"has been verified",
 ]
@@ -277,6 +291,10 @@ CLIENT_RESOLUTION = [
     r"(понял|поняла|ясно|понятно).{0,40}(не мен|не буд|не над|не нуж|можно не)",
     r"можно не мен",
     r"тогда не буд(у|ем)",
+    # клиент сам подтвердил успех; фиксируем решение, даже если поддержка
+    # после этого собирает диагностику (руками: AT-001, AZ-002)
+    r"(всё|все)\s+получилось",
+    r"(всё|все)\s+вывел",
 ]
 
 # Обещания / взяли в работу — это НЕ решение (ETA), фиксируем отдельно.
@@ -312,6 +330,10 @@ SUPPORT_ASK_PATTERNS = [
     r"отправьте", r"направьте", r"предоставьте", r"нужно отправить",
     r"прошу.{0,20}(прислать|направить|уточнить)",
     r"чем.{0,10}помочь", r"какой", r"какую", r"когда вам удобно",
+    # англоязычные запросы данных (руками: FE-001)
+    r"please (provide|send|share|specify|confirm|clarify|attach|upload)",
+    r"could you (please\s+)?(provide|send|share|specify|confirm|clarify|tell)",
+    r"we await the requested information",
 ]
 
 # Закрывающий вопрос вежливости в конце ответа («остались ли ещё вопросы?»,
@@ -448,6 +470,11 @@ _ATTACHMENT_RE = re.compile(
     r"\[(image|file|photo|video|audio|voice|sticker|документ|фото|видео|"
     r"голосовое|аудио|стикер)[^\]]*\]",
     re.IGNORECASE,
+)
+# Ссылки на внутренние инструменты (Slack, Notion) — служебные заметки
+# операторов друг другу, а не ответ клиенту (руками: MG-010).
+_INTERNAL_LINK_RE = re.compile(
+    r"https?://\S*(?:slack\.com|notion\.(?:com|so|site))\S*", re.IGNORECASE
 )
 _LEADING_AUTHOR = re.compile(r"^\s*@\S+[^:]*:\s*")
 
@@ -594,6 +621,15 @@ def _is_system_feed(text: str) -> bool:
     return _matches(_SYSTEM_FEED, text)
 
 
+def _is_internal_note(text: str) -> bool:
+    """True, если сообщение — только ссылка на Slack/Notion (внутренняя заметка)."""
+    residue = _INTERNAL_LINK_RE.sub(" ", text)
+    if residue == text:
+        return False
+    residue = re.sub(r"[^0-9A-Za-zА-Яа-яЁё]+", "", residue)
+    return len(residue) < 3
+
+
 def _strip_closing(text: str) -> str:
     """Срезаем закрывающие вопросы вежливости («остались ли вопросы?»)."""
     out = text
@@ -621,13 +657,20 @@ def _is_closing_only(text: str) -> bool:
     return len(residue) < 3
 
 
+_QUOTED_RE = re.compile(r"«[^»]{0,60}»")
+_URL_RE = re.compile(r"https?://\S+")
+
+
 def _is_support_ask(text: str) -> bool:
     """True, если поддержка запрашивает данные / задаёт уточняющий вопрос.
 
     Закрывающий вопрос вежливости («могу ли ещё чем-то помочь?») срезаем до
-    проверки: он не делает ответ поддержки запросом данных.
+    проверки: он не делает ответ поддержки запросом данных. Также срезаем
+    текст в «кавычках» и ссылки: название кнопки «Forgot your password?» и
+    «?» в параметрах URL — не вопрос клиенту (руками: AZ-003).
     """
-    return _matches(_SUPPORT_ASK, _strip_closing(text))
+    cleaned = _URL_RE.sub(" ", _QUOTED_RE.sub(" ", _strip_closing(text)))
+    return _matches(_SUPPORT_ASK, cleaned)
 
 
 def _is_client_filler(m: "Msg") -> bool:
@@ -651,13 +694,24 @@ def _last_substantive(msgs: list["Msg"], skip_filler: bool = False):
 
 
 def _is_resolution(text: str, is_support: bool) -> bool:
-    """Сообщение сигнализирует о РЕШЕНИИ (с учётом отрицаний)."""
+    """Сообщение сигнализирует о РЕШЕНИИ (с учётом отрицаний).
+
+    Отрицание проверяется ЛОКАЛЬНО, около найденного маркера, а не по всему
+    сообщению: «Все вывел, через браузер не получалось» — это решение,
+    хвост про старый способ его не отменяет (руками: AT-001).
+    """
     if _is_system_feed(text):
         return False
-    if _NEG_RESOLUTION.search(text):
-        return False
     patterns = _RESOLUTION if is_support else _CLIENT_RESOLUTION
-    return _matches(patterns, text)
+    for p in patterns:
+        mt = p.search(text)
+        if mt is None:
+            continue
+        window = text[max(0, mt.start() - 25):mt.end()]
+        if _NEG_RESOLUTION.search(window):
+            continue
+        return True
+    return False
 
 
 def _is_stub(text: str) -> bool:
@@ -669,6 +723,8 @@ def _is_stub(text: str) -> bool:
     if not text.strip():
         return True
     if _is_system_feed(text):
+        return True
+    if _is_internal_note(text):
         return True
     if _is_resolution(text, True) or _is_resolution(text, False):
         return False
@@ -824,16 +880,23 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
     #    оператор, и руководитель поддержки в ручной разметке берёт именно её.
     #    Не считаются авто-сообщения бота (приветствие, «дождитесь оператора»)
     #    и CSAT-опросы.
+    #    Отсчёт от ПЕРВОГО сообщения клиента, даже несодержательного: ответ
+    #    оператора на голое «Здравствуйте» — тоже первый ответ (руками: SG-008).
+    any_client = next((m for m in msgs if m.is_client), first_client)
+    resp_from = min(any_client.ts, first_client.ts)
     first_resp = next(
         (m for m in msgs
-         if m.is_support and m.ts >= first_client.ts and m.text.strip()
+         if m.is_support and m.ts >= resp_from and m.text.strip()
          and not m.is_csat and not _matches(_BOT_AUTO, m.text)
-         and not _is_system_feed(m.text)),
+         and not _is_system_feed(m.text) and not _is_internal_note(m.text)),
         None,
     )
     if first_resp:
         metrics.first_response_at = first_resp.ts
-        metrics.first_response_seconds = (first_resp.ts - first_client.ts).total_seconds()
+        # ответ раньше первого содержательного обращения (на «Здравствуйте») —
+        # ожидание нулевое, отрицательным быть не должно
+        metrics.first_response_seconds = max(
+            0.0, (first_resp.ts - first_client.ts).total_seconds())
 
     # 3) хендоффы в смежные отделы. Суммы считаются ниже, после шага 4:
     #    момент решения может закрыть зависшую передачу (см. 4c).
@@ -872,6 +935,7 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
         last_sub = _last_substantive(msgs, skip_filler=True)
         if last_sub is not None and last_sub.ts >= first_client.ts \
                 and last_sub.is_client and _matches(_CLIENT_CLOSE, last_sub.text) \
+                and "?" not in last_sub.text \
                 and not _NEG_RESOLUTION.search(last_sub.text):
             # «Ок, спасибо» сразу после «передали запрос в отдел» — вежливый
             # ответ на передачу, а не закрытие вопроса (руками: SG-097).
@@ -895,7 +959,10 @@ def compute_incident(msgs: list[Msg], index: int = 0) -> TicketMetrics:
         if last_sub is not None and last_sub.ts >= first_client.ts:
             if last_sub.is_support and not _is_support_ask(last_sub.text):
                 resolution_msg = last_sub
-            elif last_sub.is_client and _matches(_CLIENT_CLOSE, last_sub.text):
+            elif last_sub.is_client and _matches(_CLIENT_CLOSE, last_sub.text) \
+                    and "?" not in last_sub.text:
+                # «Спасибо, жду. Есть примерные сроки?» — вопрос, не закрытие
+                # (руками: SG-009)
                 resolution_msg = last_sub
             elif last_sub.is_client and _matches(_CLIENT_NEG_CLOSE, last_sub.text) \
                     and not _NEG_RESOLUTION.search(last_sub.text):
