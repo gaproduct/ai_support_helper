@@ -9,8 +9,8 @@
 диалогов этого чата. На замере это поднимает опознание с 44% до 70%. Если по
 чату почты нет вообще, пробуем вытащить её из текущей переписки прямо сейчас.
 
-Про Superset. Три запроса в SQL Lab отвечают за секунды, поэтому ответ кладём в
-кэш на десять минут. Если Superset недоступен, возвращаем пустые блоки с текстом
+Про Superset. Четыре запроса в SQL Lab отвечают за секунды, поэтому ответ кладём
+в кэш на десять минут. Если Superset недоступен, возвращаем пустые блоки с текстом
 ошибки: карточка должна открываться в любом случае.
 """
 import logging
@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 DATABASE_ID = 11
 CACHE_TTL_SECONDS = 600
 RECENT_LIMIT = 10
+TASKS_LIMIT = 30  # активные все статусы плюс свежие закрытые
 
 # Почта уходит в SQL текстом: SQL Lab не умеет связанные параметры. Поэтому
 # пропускаем только заведомо безопасный вид адреса, всё остальное отбрасываем.
@@ -90,14 +91,28 @@ def _rows(sql: str) -> list[dict]:
 
 
 def _tasks_sql(email: str) -> str:
+    # Сначала незакрытые задачи: у них closed_at пустой, и при сортировке только
+    # по closed_at они уезжали в конец и срезались лимитом. Оператору же в
+    # первую очередь нужны задачи в работе.
     return f"""
         SELECT id, name, status, closed_at, created_at,
                cost, currency, cost_in_rub, company_name,
                category_label_ru AS category, service_label
         FROM mv.t_tasks_extended
         WHERE lower(contractor_email) = '{email}' AND {_NOT_TECHNICAL}
-        ORDER BY closed_at DESC
-        LIMIT {RECENT_LIMIT}
+        ORDER BY CASE WHEN closed_at IS NULL THEN 1 ELSE 0 END DESC,
+                 coalesce(closed_at, created_at) DESC
+        LIMIT {TASKS_LIMIT}
+    """
+
+
+def _status_counts_sql(email: str) -> str:
+    return f"""
+        SELECT status, count() AS tasks
+        FROM mv.t_tasks_extended
+        WHERE lower(contractor_email) = '{email}' AND {_NOT_TECHNICAL}
+        GROUP BY status
+        ORDER BY tasks DESC
     """
 
 
@@ -152,8 +167,8 @@ def profile(email: str) -> dict[str, Any]:
     """Задачи, выплаты и заказчики исполнителя. Никогда не бросает исключение."""
     email = (email or "").strip().lower()
     empty: dict[str, Any] = {
-        "email": email, "tasks": [], "payouts": [], "customers": [],
-        "profile": {}, "error": None,
+        "email": email, "tasks": [], "tasks_active": [], "tasks_by_status": [],
+        "payouts": [], "customers": [], "profile": {}, "error": None,
     }
     if not _SAFE_EMAIL.match(email):
         empty["error"] = "адрес не похож на почту, запрос не отправлен"
@@ -166,7 +181,12 @@ def profile(email: str) -> dict[str, Any]:
 
     data = dict(empty)
     try:
-        data["tasks"] = _rows(_tasks_sql(email))
+        all_tasks = _rows(_tasks_sql(email))
+        # Активные задачи показываем все, какие пришли; закрытые режем до
+        # привычных десяти последних.
+        data["tasks_active"] = [t for t in all_tasks if not t.get("closed_at")]
+        data["tasks"] = [t for t in all_tasks if t.get("closed_at")][:RECENT_LIMIT]
+        data["tasks_by_status"] = _rows(_status_counts_sql(email))
         data["payouts"] = _rows(_payouts_sql(email))
         data["customers"] = _rows(_customers_sql(email))
         data["profile"] = _profile_from_payouts(data["payouts"])

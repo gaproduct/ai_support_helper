@@ -207,13 +207,19 @@ function executorBlock(e) {
     return card('Исполнитель', head + `<div class="warn" style="margin-top:12px">${esc(e.error)}</div>`);
   }
 
-  const tasks = (e.tasks || []).map(t => `<tr>
+  // Сводка по всем статусам задач исполнителя, не только по показанным.
+  const statuses = (e.tasks_by_status || []).map(s =>
+    `<span class="tag grey">${esc(s.status)}: ${s.tasks}</span>`).join('');
+
+  const taskRow = t => `<tr>
       <td>${day(t.closed_at || t.created_at)}</td>
       <td>${esc(t.name)}</td>
       <td>${esc(t.company_name)}</td>
       <td>${esc(t.status)}</td>
       <td class="num">${money(t.cost, t.currency)}</td>
-    </tr>`).join('');
+    </tr>`;
+  const active = (e.tasks_active || []).map(taskRow).join('');
+  const tasks = (e.tasks || []).map(taskRow).join('');
 
   const payouts = (e.payouts || []).map(p2 => `<tr>
       <td>${day(p2.completed_at || p2.created_at)}</td>
@@ -236,7 +242,10 @@ function executorBlock(e) {
     : `<h2 style="margin-top:18px">${title}</h2><div class="muted">Пусто.</div>`;
 
   return card('Исполнитель', head
-    + table('Последние задачи',
+    + (statuses ? `<h2 style="margin-top:18px">Задачи по статусам</h2><div class="tags">${statuses}</div>` : '')
+    + table('Активные задачи',
+        '<th>Создана</th><th>Задача</th><th>Заказчик</th><th>Статус</th><th class="num">Сумма</th>', active)
+    + table('Последние закрытые задачи',
         '<th>Закрыта</th><th>Задача</th><th>Заказчик</th><th>Статус</th><th class="num">Сумма</th>', tasks)
     + table('Последние выплаты',
         '<th>Дата</th><th>Статус</th><th>Способ</th><th>Причина отказа</th><th class="num">Сумма</th>', payouts)

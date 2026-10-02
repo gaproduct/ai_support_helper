@@ -142,6 +142,8 @@ CSAT_PATTERNS = [
 # Открытие передачи в смежный отдел → department.
 HANDOFF_OPEN = {
     "compliance": [
+        # английские передачи («contacted our Compliance team» — руками: MG, 5201)
+        r"compliance (team|department)",
         r"переда(ли|ем|н).{0,30}комплаенс",
         # «направили запрос в отдел комплаенс» — та же передача, другой глагол
         # (руками: SG-036, SG-037)
@@ -154,6 +156,7 @@ HANDOFF_OPEN = {
         r"отдел.{0,15}проверк",
     ],
     "finance": [
+        r"financ(e|ial) (team|department)",
         r"переда(ли|ем|н).{0,30}(финанс|финотдел|казначейств)",
         r"уточня(ем|ю).{0,20}(у )?финанс",
         r"финансов.{0,10}отдел",
@@ -162,6 +165,9 @@ HANDOFF_OPEN = {
         r"направили запрос коллегам.{0,40}(дат|задач|принят)",
     ],
     "documents": [
+        # «shared the information with our document management department»
+        # (руками: MG, 7649)
+        r"document management (team|department)",
         r"переда(ли|ем|н).{0,30}документооборот",
         r"(направ|отправ)\w*.{0,30}документооборот",
         r"отдел.{0,15}документооборот",
@@ -179,12 +185,18 @@ HANDOFF_OPEN = {
         r"юристы (запросили|предлагают|проверя|смотр|рассматрива|подготов)",
     ],
     "bank_provider": [
+        r"banking (team|department)",
         r"запрос.{0,20}(в )?банк",
         r"уточня(ем|ю).{0,20}(у )?(банк|провайдер|платежн)",
         r"направили.{0,20}провайдер",
         r"на стороне (банка|провайдера)",
     ],
     "technical": [
+        r"technical (team|department)",
+        r"development team",
+        # «We have submitted a request to return the funds» — запрос в смежный
+        # отдел на возврат/отмену (руками: MG, 7650)
+        r"submitted a request to (return|cancel)",
         r"переда(ли|ем|н).{0,30}(техническ|тех\.?\s?отдел|разработ)",
         r"техническ.{0,10}отдел",
         r"переда(ли|ем|н).{0,30}для отмены задачи",
@@ -193,7 +205,7 @@ HANDOFF_OPEN = {
 
 # Закрытие передачи (ответ пришёл из смежного отдела / вопрос вернулся).
 HANDOFF_CLOSE = [
-    r"коллеги подтвердили",
+    r"коллеги (подтвердили|проверили)",
     r"получил(и)? ответ",
     r"по ответу.{0,15}отдел",
     r"реквизит(ы)?.{0,20}(подтвержден|разблокирован)",
@@ -270,7 +282,10 @@ RESOLUTION_DONE = [
     r"has been (successfully )?(processed|completed|sent|resolved)",
     # «being processed» — процесс, не результат, поэтому голое processed не берём
     # (руками: FE-001); завершённое «has been processed» ловит шаблон выше
-    r"payment.{0,25}(completed|successful)\b",
+    r"(payment|payout).{0,25}(completed|successful)\b",
+    # «payout has been processed successfully» — завершено; голое «being
+    # processed» остаётся холдом (руками: FE-001, MG 5201)
+    r"(payment|payout).{0,30}processed successfully",
     r"is now (completed|resolved|done)",
     r"has been verified",
 ]
