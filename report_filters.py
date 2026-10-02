@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 INTERNAL_CLIENT_IDS: frozenset[str] = frozenset({
     "25ee7201",  # внутренний группочат MT #1 — указан prefix UUID
     "ed3c0fcd",  # внутренний группочат MT #2 — указан prefix UUID
+    "fc1e4ebf",  # чат «Т-банк х МэйдТаск» — Т-банк наш платёжный провайдер, не заказчик
 })
 
 
