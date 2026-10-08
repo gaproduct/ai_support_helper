@@ -85,8 +85,23 @@ def _get_client():
         return _client
 
 
+def _reset_client():
+    global _client
+    with _client_lock:
+        _client = None
+
+
 def _rows(sql: str) -> list[dict]:
-    result = _get_client().execute_sql(sql, database_id=DATABASE_ID, query_limit=1000)
+    # Токен Superset протухает (истёк срок или Superset перезапустили),
+    # тогда execute отвечает 401. Логинимся заново и повторяем один раз.
+    try:
+        result = _get_client().execute_sql(sql, database_id=DATABASE_ID, query_limit=1000)
+    except Exception as exc:
+        if "401" not in str(exc):
+            raise
+        log.warning("operator_profile: Superset 401, логинимся заново")
+        _reset_client()
+        result = _get_client().execute_sql(sql, database_id=DATABASE_ID, query_limit=1000)
     return [r for r in (result.get("rows") or []) if isinstance(r, dict)]
 
 
