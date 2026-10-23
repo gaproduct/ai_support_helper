@@ -160,21 +160,21 @@ subcats = q(f"""
 # Fine-buckets (dialog_fine_subcategory). Deposit bucket excluded — вынесен в
 # отдельную категорию, поэтому под «Зависанием» его больше нет.
 fine = q(f"""
-    SELECT f.subcategory, f.fine_bucket,
+    SELECT {EFFCAT} category, f.subcategory, f.fine_bucket,
            SUM(t.count) total,
            COALESCE(SUM(t.count) FILTER (WHERE t.side='customer'),0) cust,
            COALESCE(SUM(t.count) FILTER (WHERE t.side='executor'),0) exec_,
            COUNT(DISTINCT t.dialog_id) dialogs
       FROM tickets t
       JOIN dialog_fine_subcategory f ON f.dialog_id=t.dialog_id
-      LEFT JOIN manual_category_override ovr ON ovr.dialog_id=t.dialog_id
+      {DEP_JOIN}
      WHERE t.methodology='E' AND t.dialog_date BETWEEN :a AND :b
        AND f.fine_bucket <> :depbucket
        -- диалоги с ручной правкой категории берём только если бакет посчитан
        -- под ту же подкатегорию, иначе он остался от старой классификации
        AND (ovr.dialog_id IS NULL OR ovr.subcategory = f.subcategory)
        {NO_SHADOW}
-     GROUP BY f.subcategory, f.fine_bucket
+     GROUP BY {EFFCAT}, f.subcategory, f.fine_bucket
 """, **P)
 
 # Deposit category detail (carved-out «Пополнение и зачисление на баланс»)
@@ -357,10 +357,11 @@ sub_by_cat = defaultdict(list)
 for r in subcats:
     sub_by_cat[r["category"]].append(r)
 cat_total_map = {c["category"]: c["total"] for c in cats}
-# fine-buckets indexed by parent subcategory, ordered canonically (fs.FINE_ORDER)
+# fine-buckets indexed by (category, subcategory): одинаковые имена подкатегорий
+# в разных категориях не должны перемешивать бакеты между блоками
 fine_by_sub = defaultdict(dict)
 for r in fine:
-    fine_by_sub[r["subcategory"]][r["fine_bucket"]] = r
+    fine_by_sub[(r["category"], r["subcategory"])][r["fine_bucket"]] = r
 out.append('<h2>5. Детализация по подкатегориям</h2>')
 out.append('<p style="color:#566573;font-size:12px;margin-bottom:8px">Разбивка тикетов внутри категорий, у которых заданы подкатегории. Категории, подкатегории и уточняющие бакеты идут по убыванию числа тикетов, показаны топ-7 самых весомых категорий.</p>')
 # Порядок блоков: по убыванию числа тикетов, топ-7.
@@ -382,7 +383,7 @@ for cat in DISPLAY_ORDER:
         sh = r["total"]/ctot*100 if ctot else 0
         body += f'<tr class="subcat"><td class="sc">{name}</td><td>{r["total"]}</td><td>{r["cust"]}</td><td>{r["exec_"]}</td><td>{sh:.0f}%</td></tr>'
         # nested fine-buckets for the two segmented payment subcategories
-        fmap = fine_by_sub.get(name)
+        fmap = fine_by_sub.get((cat, name))
         if fmap:
             stot = r["total"]
             # Бакеты внутри подкатегории — тоже по убыванию числа тикетов.

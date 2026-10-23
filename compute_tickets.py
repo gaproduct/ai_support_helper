@@ -495,6 +495,17 @@ def compute(
             })
             inserted += 1
 
+        # Ручные переопределения стороны (manual_side_override.py): ежедневный
+        # пересчёт не должен откатывать проверенные вручную стороны тикетов.
+        if db.execute(sqlt("SELECT to_regclass('manual_side_override')")).scalar():
+            db.execute(sqlt("""
+                UPDATE tickets t SET side = o.side
+                FROM manual_side_override o
+                WHERE o.dialog_id = t.dialog_id
+                  AND t.methodology = :methodology
+                  AND t.side <> o.side
+            """), {"methodology": methodology})
+
         db.commit()
 
     log.info(
