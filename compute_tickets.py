@@ -54,7 +54,13 @@ EXCLUDE_CATEGORIES: frozenset[str] = frozenset({
 EXCLUDE_CHATNAME_RE = re.compile(r"Wallet\s+\S+\s+transactions", re.I)
 
 # fc1e4ebf = чат «Т-банк х МэйдТаск»: Т-банк — наш платёжный провайдер, не заказчик.
-INTERNAL_CLIENT_PREFIXES: tuple[str, ...] = ("25ee7201", "ed3c0fcd", "fc1e4ebf")
+# -1003897709344 = чат «Remozo Payments»: служебный чат с провайдером, не заказчик.
+INTERNAL_CLIENT_PREFIXES: tuple[str, ...] = (
+    "25ee7201",
+    "ed3c0fcd",
+    "fc1e4ebf",
+    "-1003897709344",
+)
 
 BROADCAST_KEYWORDS: tuple[str, ...] = (
     "государственный выходной",

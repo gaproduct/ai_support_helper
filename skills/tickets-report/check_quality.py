@@ -105,7 +105,8 @@ with engine.connect() as c:
         WHERE t.methodology='E' AND t.dialog_date BETWEEN :a AND :b
           AND (d.client_id::text LIKE '25ee7201%'
                OR d.client_id::text LIKE 'ed3c0fcd%'
-               OR d.client_id::text LIKE 'fc1e4ebf%')
+               OR d.client_id::text LIKE 'fc1e4ebf%'
+               OR d.client_id::text = '-1003897709344')
         ORDER BY t.dialog_id
     """), P))
     print("   count:", len(rows))
